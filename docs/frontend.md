@@ -5,6 +5,21 @@
 - [Service Architecture](#service-architecture)
 - [Getting Started](#getting-started)
 - [API Endpoints Guide](#api-endpoints-guide)
+  - [Real-Time Analytics](#real-time-analytics)
+  - [Dashboard Analytics](#dashboard-analytics)
+  - [Sales Analytics](#sales-analytics)
+  - [Menu Analytics](#menu-analytics)
+  - [Customer Analytics](#customer-analytics)
+  - [Financial Analytics](#financial-analytics)
+  - [Operational Analytics](#operational-analytics)
+  - [Comparative Analytics](#comparative-analytics)
+  - [Forecasting Analytics](#forecasting-analytics)
+  - [Report Generation](#report-generation)
+  - [Menu Management](#menu-management)
+  - [Inventory Management](#inventory-management)
+  - [Operations Management](#operations-management)
+  - [Business Settings](#business-settings)
+  - [Data Export & Import](#data-export--import)
 - [Business Types & Features](#business-types--features)
 - [Authentication & Security](#authentication--security)
 - [Data Structures & Examples](#data-structures--examples)
@@ -28,11 +43,15 @@ The **X-sevenAI Analytics Dashboard Service** is a comprehensive, enterprise-gra
 - **Customer Insights**: Behavior analysis and personalization
 
 ### 🚀 Key Features
-- **Multi-Business Type Support**: Restaurant, Cafe, Bar configurations
+- **Multi-Business Type Support**: Restaurant, Cafe, Bar, Salon configurations with modular features
 - **Real-time Analytics**: Live data streaming and updates
 - **Advanced Forecasting**: Predictive revenue and inventory analysis
 - **Comprehensive Reporting**: PDF/Excel reports with charts
 - **Data Export**: Multiple formats (JSON, CSV, PDF)
+- **Menu Management**: Full CRUD operations with categories, modifiers, and pricing
+- **Inventory Management**: Stock tracking, supplier management, and automated reordering
+- **Operations Management**: Table management, floor plans, staff scheduling, and KDS
+- **Business Settings**: Configurable preferences, notifications, and integrations
 - **PDF Intelligence**: AI-powered document processing and extraction
 
 ---
@@ -458,6 +477,43 @@ open http://localhost:8060/redoc
 }
 ```
 
+#### **GET /api/v1/analytics/sales/by-payment-method**
+**Purpose**: Analyze sales by payment method to understand customer payment preferences.
+
+**Why this endpoint exists**:
+- Tracks payment method adoption and trends
+- Helps with payment processing fee optimization
+- Supports cash flow analysis by payment type
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `start_date` (date): Analysis start date
+- `end_date` (date): Analysis end date
+
+**Response Example**:
+```json
+{
+  "business_id": "6539a901-5bdc-447f-9e43-6fbbc10ce63d",
+  "payment_methods": {
+    "card": {
+      "amount": 2156.78,
+      "percentage": 75.2,
+      "transactions": 45
+    },
+    "cash": {
+      "amount": 456.23,
+      "percentage": 15.9,
+      "transactions": 12
+    },
+    "digital_wallet": {
+      "amount": 234.56,
+      "percentage": 8.2,
+      "transactions": 6
+    }
+  }
+}
+```
+
 ---
 
 ### 👥 Customer Analytics
@@ -504,6 +560,36 @@ open http://localhost:8060/redoc
       "$100+": 20
     }
   }
+}
+```
+
+#### **GET /api/v1/analytics/customers/cohort-analysis**
+**Purpose**: Customer cohort analysis for retention tracking.
+
+**Why this endpoint exists**:
+- Measures customer retention over time
+- Identifies when customers stop returning
+- Helps optimize customer acquisition and retention strategies
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `cohort_type` (string): "weekly" or "monthly" analysis
+
+**Response Example**:
+```json
+{
+  "business_id": "6539a901-5bdc-447f-9e43-6fbbc10ce63d",
+  "cohorts": [
+    {
+      "cohort": "2025-09",
+      "size": 15,
+      "retention": {
+        "month_1": 80.0,
+        "month_2": 65.0,
+        "month_3": 55.0
+      }
+    }
+  ]
 }
 ```
 
@@ -692,6 +778,35 @@ open http://localhost:8060/redoc
 }
 ```
 
+#### **GET /api/v1/analytics/forecast/inventory-needs**
+**Purpose**: Inventory needs forecasting for optimal stock levels.
+
+**Why this endpoint exists**:
+- Predicts future inventory requirements
+- Reduces stockouts and overstock situations
+- Optimizes inventory carrying costs
+- Supports supplier ordering schedules
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `forecast_days` (int): Number of days to forecast (1-30)
+
+**Response Example**:
+```json
+{
+  "business_id": "6539a901-5bdc-447f-9e43-6fbbc10ce63d",
+  "recommendations": [
+    {
+      "item_name": "Tomatoes",
+      "current_stock": 25.5,
+      "predicted_usage": 15.2,
+      "recommended_order": 20.0,
+      "optimal_reorder_date": "2025-10-08"
+    }
+  ]
+}
+```
+
 ---
 
 ### 📋 Report Generation
@@ -778,7 +893,295 @@ open http://localhost:8060/redoc
 
 ---
 
+### 🍽️ Menu Management
+
+#### **POST /api/v1/menu/categories**
+**Purpose**: Create menu categories with hierarchical support.
+
+**Why this endpoint exists**:
+- Enables structured menu organization with parent-child relationships
+- Supports complex menu hierarchies for different dining experiences
+- Allows category-based analytics and reporting
+
+**Request Body**:
+```json
+{
+  "business_id": "uuid",
+  "name": "Main Courses",
+  "description": "Primary dining options",
+  "parent_id": "uuid",  // optional for subcategories
+  "display_order": 1,
+  "icon_url": "string",  // optional
+  "is_active": true
+}
+```
+
+#### **GET /api/v1/menu/categories**
+**Purpose**: List menu categories with filtering.
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `parent_id` (Optional UUID): Filter by parent category
+- `is_active` (Optional bool): Filter by active status
+
+#### **POST /api/v1/menu/items**
+**Purpose**: Create menu items with full customization.
+
+**Why this endpoint exists**:
+- Supports comprehensive menu item management
+- Enables pricing strategies and inventory tracking
+- Allows location-specific and time-based availability
+
+**Request Body**:
+```json
+{
+  "business_id": "uuid",
+  "category_id": "uuid",
+  "name": "Ribeye Steak",
+  "description": "Premium cut with garlic butter",
+  "price": 45.99,
+  "cost": 18.50,
+  "modifiers": ["uuid1", "uuid2"],
+  "is_available": true,
+  "locations": ["uuid1"],
+  "tags": ["premium", "beef"]
+}
+```
+
+#### **GET /api/v1/menu/items**
+**Purpose**: List menu items with advanced filtering and search.
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `category_id` (Optional UUID): Filter by category
+- `is_available` (Optional bool): Filter by availability
+- `search` (Optional string): Full-text search
+- `limit` (int): Pagination limit (1-100)
+- `offset` (int): Pagination offset
+
+#### **PUT /api/v1/menu/items/{item_id}**
+**Purpose**: Update menu item with partial updates.
+
+**Why this endpoint exists**:
+- Allows flexible menu updates without full replacement
+- Supports price changes and availability toggling
+- Enables real-time menu modifications
+
+#### **POST /api/v1/menu/modifiers**
+**Purpose**: Create item modifiers (toppings, sizes, customizations).
+
+**Why this endpoint exists**:
+- Supports complex menu customization options
+- Enables upselling through modifier pricing
+- Allows flexible menu configuration
+
+**Request Body**:
+```json
+{
+  "business_id": "uuid",
+  "name": "Cooking Temperature",
+  "type": "single",  // "single" or "multiple"
+  "required": true,
+  "options": [
+    {"name": "Rare", "price": 0.0, "is_default": false},
+    {"name": "Medium Rare", "price": 0.0, "is_default": true},
+    {"name": "Medium", "price": 0.0, "is_default": false}
+  ]
+}
+```
+
+---
+
+### 📦 Inventory Management
+
+#### **POST /api/v1/inventory/items**
+**Purpose**: Create inventory items with stock tracking.
+
+**Why this endpoint exists**:
+- Enables automated inventory management
+- Supports cost tracking and profit margin calculations
+- Allows multi-location inventory management
+
+**Request Body**:
+```json
+{
+  "business_id": "uuid",
+  "name": "Tomatoes",
+  "category": "Produce",
+  "unit": "lbs",
+  "current_stock": 25.5,
+  "min_stock": 10.0,
+  "max_stock": 50.0,
+  "unit_cost": 2.50,
+  "supplier_id": "uuid",
+  "location_id": "uuid"
+}
+```
+
+#### **GET /api/v1/inventory/items**
+**Purpose**: List inventory items with metrics and alerts.
+
+**Why this endpoint exists**:
+- Provides real-time inventory visibility
+- Enables proactive reordering based on stock levels
+- Supports multi-location inventory tracking
+
+**Response includes**:
+```json
+{
+  "id": "uuid",
+  "name": "Tomatoes",
+  "current_stock": 25.5,
+  "stock_percentage": 51.0,
+  "needs_reorder": false,
+  "stock_value": 63.75,
+  "days_of_stock": 7
+}
+```
+
+#### **POST /api/v1/inventory/transactions**
+**Purpose**: Record inventory transactions (in/out/adjustments).
+
+**Why this endpoint exists**:
+- Maintains accurate inventory audit trails
+- Supports cost accounting and waste tracking
+- Enables inventory turnover analysis
+
+#### **POST /api/v1/inventory/purchase-orders**
+**Purpose**: Create purchase orders for suppliers.
+
+**Why this endpoint exists**:
+- Streamlines supplier ordering process
+- Reduces stockouts through automated reordering
+- Enables supplier performance tracking
+
+---
+
+### 🏢 Operations Management
+
+#### **POST /api/v1/operations/locations**
+**Purpose**: Create business locations for multi-location operations.
+
+**Why this endpoint exists**:
+- Supports multi-location business management
+- Enables location-specific analytics and operations
+- Allows centralized control of distributed operations
+
+#### **POST /api/v1/operations/tables**
+**Purpose**: Manage table configurations and assignments.
+
+**Why this endpoint exists**:
+- Optimizes seating capacity and turnover
+- Enables table management and reservations
+- Supports operational efficiency metrics
+
+#### **GET /api/v1/operations/kds/orders**
+**Purpose**: Kitchen Display System order management.
+
+**Why this endpoint exists**:
+- Streamlines kitchen operations and order flow
+- Reduces wait times and improves service quality
+- Enables real-time kitchen performance monitoring
+
+#### **POST /api/v1/operations/staff**
+**Purpose**: Staff member management and scheduling.
+
+**Why this endpoint exists**:
+- Supports workforce management and scheduling
+- Enables labor cost tracking and optimization
+- Allows staff performance analysis
+
+#### **POST /api/v1/operations/time-clock**
+**Purpose**: Time clock functionality for staff attendance.
+
+**Why this endpoint exists**:
+- Ensures accurate payroll processing
+- Supports compliance with labor regulations
+- Enables workforce analytics and planning
+
+---
+
+### ⚙️ Business Settings
+
+#### **GET /api/v1/business-settings/{business_id}**
+**Purpose**: Retrieve business configuration and preferences.
+
+**Why this endpoint exists**:
+- Supports customizable business operations
+- Enables location-specific and business-type-specific features
+- Allows user preference management
+
+**Response includes**:
+```json
+{
+  "business_id": "uuid",
+  "notifications": {
+    "email": true,
+    "sms": false,
+    "push": true
+  },
+  "preferences": {
+    "locale": "en-US",
+    "currency": "USD",
+    "timezone": "UTC",
+    "date_format": "MM/DD/YYYY"
+  },
+  "business_hours": [...],
+  "integrations": {...}
+}
+```
+
+#### **PUT /api/v1/business-settings/{business_id}**
+**Purpose**: Update business settings and preferences.
+
+**Why this endpoint exists**:
+- Allows businesses to customize their experience
+- Supports integration configuration
+- Enables operational preference management
+
+---
+
+### 📤 Data Export & Import
+
+#### **GET /api/v1/export/{business_id}**
+**Purpose**: Export business data in multiple formats.
+
+**Why this endpoint exists**:
+- Enables data portability and backup
+- Supports integration with external systems
+- Allows advanced analysis with specialized tools
+
+**Parameters**:
+- `business_id` (UUID): Business identifier
+- `data_type` (string): "orders", "customers", "menu", "analytics"
+- `format` (string): "json", "csv", "pdf"
+- `start_date` (Optional date): Date range start
+- `end_date` (Optional date): Date range end
+
+#### **POST /api/v1/menu/import**
+**Purpose**: Import menu data from external sources.
+
+**Why this endpoint exists**:
+- Streamlines menu setup and migration
+- Supports integration with menu management software
+- Enables bulk menu operations
+
+**Supported sources**: PDF, CSV, JSON, Toast, DoorDash
+
+#### **GET /api/v1/menu/export/{business_id}**
+**Purpose**: Export menu data for backup or integration.
+
+**Why this endpoint exists**:
+- Supports menu backup and recovery
+- Enables integration with POS systems
+- Allows menu sharing and replication
+
+---
+
 ## 🏢 Business Types & Features
+
+### Modular Feature System
+The analytics dashboard supports multiple business types with configurable, modular features. Each business type enables specific functionality based on operational needs.
 
 ### Restaurant Configuration
 ```json
@@ -789,13 +1192,17 @@ open http://localhost:8060/redoc
     "kitchen_tracking",
     "reservation_system",
     "multi_course_menus",
-    "table_turnover_analysis"
+    "table_turnover_analysis",
+    "kds_orders",
+    "staff_scheduling",
+    "menu_modifiers"
   ],
   "analytics_focus": [
     "dining_experience",
     "service_efficiency",
     "menu_performance",
-    "peak_hours_management"
+    "peak_hours_management",
+    "table_utilization"
   ]
 }
 ```
@@ -809,13 +1216,16 @@ open http://localhost:8060/redoc
     "beverage_focus",
     "pastry_management",
     "takeout_orders",
-    "customer_loyalty"
+    "customer_loyalty",
+    "inventory_tracking",
+    "simple_menu_structure"
   ],
   "analytics_focus": [
     "beverage_performance",
     "customer_frequency",
     "peak_hours",
-    "inventory_turnover"
+    "inventory_turnover",
+    "takeout_vs_dine_in"
   ]
 }
 ```
@@ -829,16 +1239,49 @@ open http://localhost:8060/redoc
     "happy_hour_management",
     "capacity_tracking",
     "entertainment_events",
-    "age_verification"
+    "age_verification",
+    "drink_modifiers",
+    "bottle_service"
   ],
   "analytics_focus": [
     "drink_preferences",
     "revenue_per_seat",
     "event_performance",
-    "customer_demographics"
+    "customer_demographics",
+    "time_based_pricing"
   ]
 }
 ```
+
+### Salon/Spa Configuration
+```json
+{
+  "type": "salon",
+  "features": [
+    "appointment_booking",
+    "service_management",
+    "staff_specializations",
+    "client_profiles",
+    "loyalty_programs",
+    "treatment_tracking"
+  ],
+  "analytics_focus": [
+    "service_popularity",
+    "staff_performance",
+    "client_retention",
+    "appointment_utilization",
+    "treatment_margins"
+  ]
+}
+```
+
+### Feature Modules
+- **Menu Management**: Categories, items, modifiers, pricing
+- **Inventory Control**: Stock tracking, reordering, supplier management
+- **Operations**: Tables, floor plans, staff scheduling, KDS
+- **Customer Management**: Profiles, loyalty, preferences
+- **Financial Analytics**: Profit margins, cost analysis, forecasting
+- **Reporting**: Custom reports, exports, scheduled delivery
 
 ---
 
