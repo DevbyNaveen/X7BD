@@ -2,6 +2,17 @@
 
 Enterprise-grade analytics platform for food & hospitality businesses with real-time insights, AI-powered analytics, and comprehensive reporting.
 
+## ✨ NEW: Authentication Integration
+
+**Full authentication system now integrated!** 
+- Business registration with direct Supabase
+- Login/logout with JWT tokens
+- Role-based access control (Owner, Admin, Staff)
+- Protected routes with middleware
+- Multi-category business support
+
+📖 **[Read the Auth Integration Guide](docs/AUTH_INTEGRATION.md)**
+
 ## 🚀 Quick Start
 
 ### Docker (Recommended)
@@ -56,6 +67,13 @@ Service will be available at: http://localhost:8060
 
 ## 📞 API Endpoints
 
+### Authentication (NEW!)
+- `POST /api/v1/auth/register/business` - Register new business
+- `POST /api/v1/auth/login` - User login
+- `POST /api/v1/auth/refresh` - Refresh token
+- `GET /api/v1/auth/me` - Get current user
+- `POST /api/v1/auth/logout` - Logout
+
 ### Analytics
 - `GET /api/v1/analytics/realtime/{business_id}` - Real-time metrics
 - `GET /api/v1/analytics/historical/{business_id}` - Historical data
@@ -63,6 +81,12 @@ Service will be available at: http://localhost:8060
 ### Menu Management
 - `GET /api/v1/menu/items` - List menu items
 - `POST /api/v1/menu/categories` - Create category
+
+### Business Settings (Protected)
+- `GET /api/v1/business-settings/{business_id}` - Get settings
+- `PUT /api/v1/business-settings/{business_id}` - Update settings
+- `GET /api/v1/business-settings/{business_id}/working-hours` - Get hours
+- `PUT /api/v1/business-settings/{business_id}/working-hours` - Update hours
 
 ### Reports
 - `POST /api/v1/reports/generate` - Generate reports
@@ -81,8 +105,11 @@ Service will be available at: http://localhost:8060
 # Run tests
 python -m pytest tests/
 
-# Test real endpoints
-python test_real_endpoints.py
+# Test authentication integration
+python test_auth.py
+
+# Import Postman collection
+# File: postman_collection.json
 ```
 
 ## 📄 License

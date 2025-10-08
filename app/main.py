@@ -20,7 +20,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import routers
-from .routes import menu, inventory, operations, analytics, websocket, business_settings
+from .routes import (
+    menu, inventory, operations, analytics, websocket, business_settings, auth,
+    service_based, retail, professional, universal_analytics
+)
+
+# Import DevOps client
+import sys
+import os
+# Add shared directory to path
+shared_path = os.path.join(os.path.dirname(__file__), '../../../shared')
+sys.path.append(shared_path)
+from libs.devops_client import get_devops_client, IncidentSeverity
 
 # Configuration
 SERVICE_NAME = "analytics-dashboard-service"
@@ -46,6 +57,11 @@ async def lifespan(app: FastAPI):
     print(f"Starting {SERVICE_NAME}")
     print(f"Service running on port {SERVICE_PORT}")
     
+    # Initialize DevOps client
+    devops_client = get_devops_client()
+    devops_client.configure(SERVICE_NAME)
+    print("✓ DevOps client initialized")
+    
     # Initialize database service
     from .services.database import get_database_service
     try:
@@ -53,6 +69,11 @@ async def lifespan(app: FastAPI):
         print("✓ Database service initialized")
     except Exception as e:
         print(f"✗ Database initialization failed: {e}")
+        await devops_client.report_incident(
+            title=f"{SERVICE_NAME} database initialization failed",
+            description=str(e),
+            severity=IncidentSeverity.HIGH
+        )
     
     # Initialize WebSocket manager
     from .services.realtime import manager
@@ -83,10 +104,25 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth.router)  # Auth routes (must be first)
+
+# Food & Hospitality Template (existing)
 app.include_router(menu.router)
 app.include_router(inventory.router)
 app.include_router(operations.router)
+
+# Service-Based Template (NEW)
+app.include_router(service_based.router)
+
+# Retail Template (NEW)
+app.include_router(retail.router)
+
+# Professional Services Template (NEW)
+app.include_router(professional.router)
+
+# Universal routes
 app.include_router(analytics.router)
+app.include_router(universal_analytics.router)  # Cross-category analytics
 app.include_router(websocket.router)
 app.include_router(business_settings.router)
 
@@ -388,10 +424,29 @@ async def export_data(
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=SERVICE_PORT,
-        reload=True,
-        log_level=LOG_LEVEL.lower()
-    )
+    import sys
+    
+    # Check if we're in reload mode
+    is_reload = "--reload" in sys.argv
+    
+    # Configure uvicorn based on reload status
+    config = {
+        "app": "app.main:app",
+        "host": "0.0.0.0",
+        "port": SERVICE_PORT,
+        "log_level": LOG_LEVEL.lower(),
+    }
+    
+    if is_reload:
+        config["reload"] = True
+        # Don't use uvloop in reload mode to avoid compatibility issues
+        config["loop"] = "asyncio"
+    else:
+        # Use uvloop in production for better performance
+        try:
+            import uvloop
+            uvloop.install()
+        except ImportError:
+            pass
+    
+    uvicorn.run(**config)

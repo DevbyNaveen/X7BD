@@ -1,6 +1,11 @@
 """
 Operations Management API Routes
 Enterprise-grade endpoints for tables, floor plans, kitchen, and staff
+
+ENTERPRISE STRUCTURE:
+- Food & Hospitality specific endpoints prefixed with /food
+- Common endpoints (staff, time-clock, locations) moved to universal routes
+- Tables and KDS are food-specific
 """
 
 from fastapi import APIRouter, HTTPException, Query, status, WebSocket
@@ -21,11 +26,11 @@ from ..models.operations import (
 from ..services.database import get_database_service
 from ..services.realtime import RealtimeEventPublisher
 
-router = APIRouter(prefix="/api/v1/operations", tags=["operations"])
+router = APIRouter(prefix="/api/v1/food", tags=["Food & Hospitality - Operations"])
 
 
 # ============================================================================
-# LOCATIONS
+# LOCATIONS (Should be moved to universal /api/v1/locations)
 # ============================================================================
 
 @router.post("/locations", response_model=Location, status_code=status.HTTP_201_CREATED)
@@ -437,7 +442,7 @@ async def kds_live_feed(websocket: WebSocket, business_id: UUID):
 
 
 # ============================================================================
-# STAFF MANAGEMENT
+# STAFF MANAGEMENT (Should be moved to universal /api/v1/staff)
 # ============================================================================
 
 @router.post("/staff", response_model=StaffMember, status_code=status.HTTP_201_CREATED)
@@ -531,7 +536,7 @@ async def delete_schedule(schedule_id: UUID):
 
 
 # ============================================================================
-# TIME CLOCK
+# TIME CLOCK (Should be moved to universal /api/v1/time-clock)
 # ============================================================================
 
 @router.post("/time-clock/clock-in", response_model=TimeClock, status_code=status.HTTP_201_CREATED)

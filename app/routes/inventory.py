@@ -1,6 +1,10 @@
 """
 Inventory Management API Routes
 Enterprise-grade endpoints for inventory tracking and automation
+
+ENTERPRISE STRUCTURE:
+- Food & Hospitality specific endpoints prefixed with /food/inventory
+- Common endpoints moved to universal routes
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status, BackgroundTasks
@@ -19,7 +23,7 @@ from ..models.inventory import (
     InventoryReport, InventorySearch
 )
 
-router = APIRouter(prefix="/api/v1/inventory", tags=["inventory"])
+router = APIRouter(prefix="/api/v1/food/inventory", tags=["Food & Hospitality - Inventory"])
 
 
 # ============================================================================

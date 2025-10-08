@@ -1,6 +1,10 @@
 """
 Menu Management API Routes
 Enterprise-grade endpoints for menu CRUD operations
+
+ENTERPRISE STRUCTURE:
+- Food & Hospitality specific endpoints prefixed with /food/menu
+- Common endpoints (customers, staff, analytics) moved to universal routes
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query, status
@@ -18,7 +22,7 @@ from ..models.menu import (
 from ..services.database import get_database_service
 from ..services.realtime import RealtimeEventPublisher
 
-router = APIRouter(prefix="/api/v1/menu", tags=["menu"])
+router = APIRouter(prefix="/api/v1/menu", tags=["Menu Management"])
 
 
 # ============================================================================
@@ -41,7 +45,7 @@ async def create_menu_category(category: MenuCategoryCreate):
         if data.get("parent_id"):
             data["parent_id"] = str(data["parent_id"])
         
-        result = await db.create_menu_category(data)
+        result = db.create_menu_category(data)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create category: {str(e)}")
@@ -61,7 +65,7 @@ async def list_menu_categories(
     """
     try:
         db = get_database_service()
-        categories = await db.get_menu_categories(business_id, parent_id, is_active)
+        categories = db.get_menu_categories(business_id, parent_id, is_active)
         return categories
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch categories: {str(e)}")
@@ -149,7 +153,7 @@ async def create_menu_item(item: MenuItemCreate):
         data["modifiers"] = [str(m) for m in data.get("modifiers", [])]
         data["locations"] = [str(l) for l in data.get("locations", [])]
         
-        result = await db.create_menu_item(data)
+        result = db.create_menu_item(data)
         
         # Publish real-time update
         await RealtimeEventPublisher.publish_order_update(
@@ -219,7 +223,7 @@ async def get_menu_item(item_id: UUID, include_modifiers: bool = Query(True)):
     """
     try:
         db = get_database_service()
-        item = await db.get_menu_item_with_details(item_id)
+        item = db.get_menu_item_with_details(item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Menu item not found")
         return item
@@ -247,7 +251,7 @@ async def update_menu_item(item_id: UUID, updates: MenuItemUpdate):
         if "cost" in update_data and update_data["cost"]:
             update_data["cost"] = float(update_data["cost"])
         
-        result = await db.update_menu_item(item_id, update_data)
+        result = db.update_menu_item(item_id, update_data)
         if not result:
             raise HTTPException(status_code=404, detail="Menu item not found")
         return result
@@ -267,7 +271,7 @@ async def delete_menu_item(item_id: UUID, soft_delete: bool = Query(True)):
     """
     try:
         db = get_database_service()
-        success = await db.delete_menu_item(item_id, soft_delete)
+        success = db.delete_menu_item(item_id, soft_delete)
         if not success:
             raise HTTPException(status_code=404, detail="Menu item not found")
         return None
@@ -335,7 +339,7 @@ async def duplicate_menu_item(item_id: UUID, new_name: Optional[str] = None):
         else:
             duplicate_data["name"] = f"{duplicate_data['name']} (Copy)"
         
-        result = await db.create_menu_item(duplicate_data)
+        result = db.create_menu_item(duplicate_data)
         return result
     except HTTPException:
         raise

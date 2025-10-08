@@ -28,12 +28,12 @@ class DatabaseService:
     # MENU OPERATIONS
     # ========================================================================
     
-    async def create_menu_category(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_menu_category(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create menu category"""
         result = self.client.table("menu_categories").insert(data).execute()
         return result.data[0] if result.data else None
     
-    async def get_menu_categories(
+    def get_menu_categories(
         self,
         business_id: UUID,
         parent_id: Optional[UUID] = None,
@@ -51,12 +51,12 @@ class DatabaseService:
         result = query.execute()
         return result.data
     
-    async def create_menu_item(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_menu_item(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create menu item"""
         result = self.client.table("menu_items").insert(data).execute()
         return result.data[0] if result.data else None
     
-    async def get_menu_items(
+    def get_menu_items(
         self,
         business_id: UUID,
         category_id: Optional[UUID] = None,
@@ -76,7 +76,7 @@ class DatabaseService:
         result = query.execute()
         return result.data
     
-    async def get_menu_item_with_details(self, item_id: UUID) -> Optional[Dict[str, Any]]:
+    def get_menu_item_with_details(self, item_id: UUID) -> Optional[Dict[str, Any]]:
         """Get menu item with category and modifiers"""
         # Get item
         item_result = self.client.table("menu_items").select("*").eq("id", str(item_id)).execute()
@@ -98,12 +98,12 @@ class DatabaseService:
         
         return item
     
-    async def update_menu_item(self, item_id: UUID, updates: Dict[str, Any]) -> Dict[str, Any]:
+    def update_menu_item(self, item_id: UUID, updates: Dict[str, Any]) -> Dict[str, Any]:
         """Update menu item"""
         result = self.client.table("menu_items").update(updates).eq("id", str(item_id)).execute()
         return result.data[0] if result.data else None
     
-    async def delete_menu_item(self, item_id: UUID, soft_delete: bool = True) -> bool:
+    def delete_menu_item(self, item_id: UUID, soft_delete: bool = True) -> bool:
         """Delete menu item (soft or hard)"""
         if soft_delete:
             result = self.client.table("menu_items").update({"is_available": False}).eq("id", str(item_id)).execute()
@@ -253,7 +253,7 @@ class DatabaseService:
     ) -> List[Dict[str, Any]]:
         """Get active KDS orders"""
         query = self.client.table("kds_orders").select("*").eq("business_id", str(business_id))
-        query = query.in_("status", ["pending", "preparing"])
+        query = query.in_(["pending", "preparing"])
         
         if station:
             query = query.eq("station", station)
