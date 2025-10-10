@@ -11,7 +11,7 @@ ENTERPRISE STRUCTURE:
 from fastapi import APIRouter, HTTPException, Query, status, WebSocket
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 
 from ..models.operations import (
     Location, LocationCreate, LocationUpdate,
@@ -235,21 +235,6 @@ async def list_tables(
         raise HTTPException(status_code=500, detail=f"Failed to fetch tables: {str(e)}")
 
 
-@router.get("/tables/{table_id}", response_model=TableWithDetails)
-async def get_table(table_id: UUID):
-    """Get table with full details"""
-    try:
-        db = get_database_service()
-        result = db.client.table("tables").select("*, orders(*), floor_plans(name)").eq("id", str(table_id)).execute()
-        
-        if not result.data:
-            raise HTTPException(status_code=404, detail="Table not found")
-        
-        return result.data[0]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch table: {str(e)}")
 
 
 @router.put("/tables/{table_id}", response_model=Table)
@@ -275,6 +260,25 @@ async def update_table(table_id: UUID, updates: TableUpdate):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to update table: {str(e)}")
+
+
+@router.put("/tables/{table_id}/assign", response_model=dict)
+async def assign_table_by_id(
+    table_id: UUID,
+    assignment: TableAssignment
+):
+    """
+    Assign table to order (alternative endpoint)
+    
+    - **Capacity check**: Validate party size
+    - **Status update**: Mark table as occupied
+    - **Tracking**: Start occupancy timer
+    """
+    # Ensure the table_id in the URL matches the assignment
+    if assignment.table_id != table_id:
+        raise HTTPException(status_code=400, detail="Table ID mismatch")
+    
+    return await assign_table(assignment)
 
 
 @router.post("/tables/assign", response_model=dict)
@@ -367,11 +371,11 @@ async def release_table(table_id: UUID):
         raise HTTPException(status_code=500, detail=f"Failed to release table: {str(e)}")
 
 
-@router.get("/tables/availability", response_model=List[Table])
+@router.get("/tables/availability", response_model=List[dict])
 async def check_table_availability(
     business_id: UUID = Query(...),
     location_id: Optional[UUID] = Query(None),
-    party_size: int = Query(..., ge=1),
+    party_size: str = Query(...),
     time_slot: Optional[datetime] = Query(None)
 ):
     """
@@ -384,10 +388,24 @@ async def check_table_availability(
     try:
         db = get_database_service()
         
+        # Parse party_size - handle formats like "1:1", "4", etc.
+        try:
+            if ":" in party_size:
+                # Format like "1:1" - take the first number
+                party_size_int = int(party_size.split(":")[0])
+            else:
+                # Format like "4" - direct integer
+                party_size_int = int(party_size)
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid party_size format. Expected integer or format like '1:1'")
+        
+        if party_size_int < 1:
+            raise HTTPException(status_code=400, detail="Party size must be at least 1")
+        
         # Query tables with sufficient capacity
         query = db.client.table("tables").select("*")
         query = query.eq("business_id", str(business_id))
-        query = query.gte("capacity", party_size)
+        query = query.gte("capacity", party_size_int)
         
         if location_id:
             query = query.eq("location_id", str(location_id))
@@ -399,10 +417,15 @@ async def check_table_availability(
         if time_slot:
             # Query reservations for the time slot (would need reservations table)
             # For now, filter by current status
-            available_tables = [t for t in tables if t.get("status") == "available"]
+            available_tables = [t for t in tables if t.get("status") == "available" or t.get("status") is None]
         else:
             # Just return currently available tables
-            available_tables = [t for t in tables if t.get("status") == "available"]
+            available_tables = [t for t in tables if t.get("status") == "available" or t.get("status") is None]
+        
+        # Ensure all tables have a status field
+        for table in available_tables:
+            if "status" not in table or table["status"] is None:
+                table["status"] = "available"
         
         return available_tables
     except Exception as e:
