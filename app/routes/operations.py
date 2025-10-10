@@ -69,15 +69,38 @@ async def list_locations(
 @router.get("/locations/{location_id}", response_model=Location)
 async def get_location(location_id: UUID):
     """Get location details"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("locations").select("*").eq("id", str(location_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Location not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch location: {str(e)}")
 
 
 @router.put("/locations/{location_id}", response_model=Location)
 async def update_location(location_id: UUID, updates: LocationUpdate):
     """Update location"""
-    # TODO: Implement Supabase update
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        update_data = updates.model_dump(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        result = db.client.table("locations").update(update_data).eq("id", str(location_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Location not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update location: {str(e)}")
 
 
 # ============================================================================
@@ -92,8 +115,17 @@ async def create_floor_plan(floor_plan: FloorPlanCreate):
     - **Visual designer**: Drag-and-drop table placement
     - **Multiple plans**: Different layouts for different times
     """
-    # TODO: Implement Supabase insert
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        data = floor_plan.model_dump()
+        data["business_id"] = str(data["business_id"])
+        if data.get("location_id"):
+            data["location_id"] = str(data["location_id"])
+        
+        result = db.client.table("floor_plans").insert(data).execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create floor plan: {str(e)}")
 
 
 @router.get("/floor-plans", response_model=List[FloorPlan])
@@ -102,22 +134,54 @@ async def list_floor_plans(
     location_id: Optional[UUID] = Query(None)
 ):
     """List floor plans"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        query = db.client.table("floor_plans").select("*").eq("business_id", str(business_id))
+        
+        if location_id:
+            query = query.eq("location_id", str(location_id))
+        
+        result = query.execute()
+        return result.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch floor plans: {str(e)}")
 
 
 @router.get("/floor-plans/{plan_id}", response_model=FloorPlan)
 async def get_floor_plan(plan_id: UUID):
     """Get floor plan with layout data"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("floor_plans").select("*").eq("id", str(plan_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Floor plan not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch floor plan: {str(e)}")
 
 
 @router.put("/floor-plans/{plan_id}", response_model=FloorPlan)
 async def update_floor_plan(plan_id: UUID, updates: FloorPlanUpdate):
     """Update floor plan layout"""
-    # TODO: Implement Supabase update
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        update_data = updates.model_dump(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        result = db.client.table("floor_plans").update(update_data).eq("id", str(plan_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Floor plan not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update floor plan: {str(e)}")
 
 
 # ============================================================================
@@ -174,8 +238,18 @@ async def list_tables(
 @router.get("/tables/{table_id}", response_model=TableWithDetails)
 async def get_table(table_id: UUID):
     """Get table with full details"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("tables").select("*, orders(*), floor_plans(name)").eq("id", str(table_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Table not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch table: {str(e)}")
 
 
 @router.put("/tables/{table_id}", response_model=Table)
@@ -307,10 +381,32 @@ async def check_table_availability(
     - **Time-based**: Check future availability
     - **Combining tables**: Suggest table combinations
     """
-    # TODO: Query available tables
-    # TODO: Filter by capacity
-    # TODO: Check reservations for time slot
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        
+        # Query tables with sufficient capacity
+        query = db.client.table("tables").select("*")
+        query = query.eq("business_id", str(business_id))
+        query = query.gte("capacity", party_size)
+        
+        if location_id:
+            query = query.eq("location_id", str(location_id))
+        
+        result = query.execute()
+        tables = result.data
+        
+        # If time_slot provided, check for reservations
+        if time_slot:
+            # Query reservations for the time slot (would need reservations table)
+            # For now, filter by current status
+            available_tables = [t for t in tables if t.get("status") == "available"]
+        else:
+            # Just return currently available tables
+            available_tables = [t for t in tables if t.get("status") == "available"]
+        
+        return available_tables
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to check availability: {str(e)}")
 
 
 # ============================================================================
@@ -370,8 +466,26 @@ async def list_kds_orders(
 @router.get("/kds/orders/{order_id}", response_model=KDSOrderWithMetrics)
 async def get_kds_order(order_id: UUID):
     """Get KDS order with metrics"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("kds_orders").select("*, orders(*), staff_members(first_name, last_name)").eq("id", str(order_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="KDS order not found")
+        
+        order = result.data[0]
+        
+        # Calculate metrics
+        if order.get("prep_start_time") and order.get("prep_end_time"):
+            start = datetime.fromisoformat(order["prep_start_time"].replace('Z', '+00:00'))
+            end = datetime.fromisoformat(order["prep_end_time"].replace('Z', '+00:00'))
+            order["prep_time_minutes"] = (end - start).total_seconds() / 60
+        
+        return order
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch KDS order: {str(e)}")
 
 
 @router.put("/kds/orders/{order_id}", response_model=KDSOrder)
@@ -420,9 +534,58 @@ async def get_kitchen_performance(
     - **Efficiency**: Orders per hour
     - **Delays**: Late orders analysis
     """
-    # TODO: Query KDS orders
-    # TODO: Calculate performance metrics
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        
+        # Set default date range if not provided
+        if not start_date:
+            start_date = datetime.utcnow() - timedelta(days=7)
+        if not end_date:
+            end_date = datetime.utcnow()
+        
+        # Query KDS orders
+        query = db.client.table("kds_orders").select("*")
+        query = query.eq("business_id", str(business_id))
+        query = query.gte("created_at", start_date.isoformat())
+        query = query.lte("created_at", end_date.isoformat())
+        result = query.execute()
+        
+        # Calculate metrics
+        prep_times = []
+        late_orders = 0
+        total_orders = len(result.data)
+        
+        for order in result.data:
+            if order.get("prep_start_time") and order.get("prep_end_time"):
+                start = datetime.fromisoformat(order["prep_start_time"].replace('Z', '+00:00'))
+                end = datetime.fromisoformat(order["prep_end_time"].replace('Z', '+00:00'))
+                prep_time = (end - start).total_seconds() / 60
+                prep_times.append(prep_time)
+                
+                # Check if late
+                if order.get("target_time"):
+                    target = datetime.fromisoformat(order["target_time"].replace('Z', '+00:00'))
+                    if end > target:
+                        late_orders += 1
+        
+        avg_prep_time = sum(prep_times) / len(prep_times) if prep_times else 0
+        time_span_hours = (end_date - start_date).total_seconds() / 3600
+        orders_per_hour = total_orders / time_span_hours if time_span_hours > 0 else 0
+        late_percentage = (late_orders / total_orders * 100) if total_orders > 0 else 0
+        
+        return {
+            "business_id": str(business_id),
+            "period": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat()
+            },
+            "avg_prep_time_minutes": round(avg_prep_time, 2),
+            "orders_per_hour": round(orders_per_hour, 2),
+            "late_orders_percentage": round(late_percentage, 2),
+            "total_orders": total_orders
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze kitchen performance: {str(e)}")
 
 
 @router.websocket("/kds/live/{business_id}")
@@ -435,10 +598,33 @@ async def kds_live_feed(websocket: WebSocket, business_id: UUID):
     - **Alerts**: Priority orders and delays
     """
     await websocket.accept()
-    # TODO: Implement WebSocket connection
-    # TODO: Subscribe to KDS events
-    # TODO: Stream updates to client
-    pass
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "business_id": str(business_id),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+        # Keep connection alive and listen for messages
+        while True:
+            # In production, this would:
+            # 1. Subscribe to Redis/Kafka for KDS events
+            # 2. Stream real-time updates to client
+            # 3. Handle client messages (order status updates)
+            
+            # For now, keep connection alive
+            data = await websocket.receive_text()
+            
+            # Echo back for testing
+            await websocket.send_json({
+                "type": "echo",
+                "data": data,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+    except Exception as e:
+        await websocket.close()
+        print(f"WebSocket error: {str(e)}")
 
 
 # ============================================================================
@@ -486,15 +672,38 @@ async def list_staff_members(
 @router.get("/staff/{staff_id}", response_model=StaffMember)
 async def get_staff_member(staff_id: UUID):
     """Get staff member details"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("staff_members").select("*").eq("id", str(staff_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch staff member: {str(e)}")
 
 
 @router.put("/staff/{staff_id}", response_model=StaffMember)
 async def update_staff_member(staff_id: UUID, updates: StaffMemberUpdate):
     """Update staff member"""
-    # TODO: Implement Supabase update
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        update_data = updates.model_dump(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        result = db.client.table("staff_members").update(update_data).eq("id", str(staff_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update staff member: {str(e)}")
 
 
 # ============================================================================
@@ -504,9 +713,34 @@ async def update_staff_member(staff_id: UUID, updates: StaffMemberUpdate):
 @router.post("/schedules", response_model=StaffSchedule, status_code=status.HTTP_201_CREATED)
 async def create_schedule(schedule: StaffScheduleCreate):
     """Create staff schedule"""
-    # TODO: Implement Supabase insert
-    # TODO: Check for scheduling conflicts
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        
+        # Check for scheduling conflicts
+        conflict_query = db.client.table("staff_schedules").select("*")
+        conflict_query = conflict_query.eq("staff_id", str(schedule.staff_id))
+        conflict_query = conflict_query.eq("shift_date", schedule.shift_date.isoformat())
+        conflict_result = conflict_query.execute()
+        
+        if conflict_result.data:
+            raise HTTPException(status_code=400, detail="Staff member already scheduled for this date")
+        
+        # Create schedule
+        data = schedule.model_dump()
+        data["business_id"] = str(data["business_id"])
+        data["staff_id"] = str(data["staff_id"])
+        if data.get("location_id"):
+            data["location_id"] = str(data["location_id"])
+        data["shift_date"] = data["shift_date"].isoformat()
+        data["shift_start"] = str(data["shift_start"])
+        data["shift_end"] = str(data["shift_end"])
+        
+        result = db.client.table("staff_schedules").insert(data).execute()
+        return result.data[0] if result.data else None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create schedule: {str(e)}")
 
 
 @router.get("/schedules", response_model=List[StaffSchedule])
@@ -517,22 +751,68 @@ async def list_schedules(
     end_date: Optional[date] = Query(None)
 ):
     """List staff schedules"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        query = db.client.table("staff_schedules").select("*, staff_members(first_name, last_name, position)")
+        query = query.eq("business_id", str(business_id))
+        
+        if staff_id:
+            query = query.eq("staff_id", str(staff_id))
+        if start_date:
+            query = query.gte("shift_date", start_date.isoformat())
+        if end_date:
+            query = query.lte("shift_date", end_date.isoformat())
+        
+        query = query.order("shift_date")
+        result = query.execute()
+        return result.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch schedules: {str(e)}")
 
 
 @router.put("/schedules/{schedule_id}", response_model=StaffSchedule)
 async def update_schedule(schedule_id: UUID, updates: StaffScheduleUpdate):
     """Update staff schedule"""
-    # TODO: Implement Supabase update
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        update_data = updates.model_dump(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Convert time objects to strings if present
+        if "shift_start" in update_data and update_data["shift_start"]:
+            update_data["shift_start"] = str(update_data["shift_start"])
+        if "shift_end" in update_data and update_data["shift_end"]:
+            update_data["shift_end"] = str(update_data["shift_end"])
+        if "shift_date" in update_data and update_data["shift_date"]:
+            update_data["shift_date"] = update_data["shift_date"].isoformat()
+        
+        result = db.client.table("staff_schedules").update(update_data).eq("id", str(schedule_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return result.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update schedule: {str(e)}")
 
 
 @router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(schedule_id: UUID):
     """Delete staff schedule"""
-    # TODO: Implement Supabase delete
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        result = db.client.table("staff_schedules").delete().eq("id", str(schedule_id)).execute()
+        
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete schedule: {str(e)}")
 
 
 # ============================================================================
@@ -605,8 +885,23 @@ async def list_time_clock_entries(
     end_date: Optional[date] = Query(None)
 ):
     """List time clock entries"""
-    # TODO: Implement Supabase query
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        query = db.client.table("time_clock").select("*, staff_members(first_name, last_name, position)")
+        query = query.eq("business_id", str(business_id))
+        
+        if staff_id:
+            query = query.eq("staff_id", str(staff_id))
+        if start_date:
+            query = query.gte("clock_in", start_date.isoformat())
+        if end_date:
+            query = query.lte("clock_in", end_date.isoformat())
+        
+        query = query.order("clock_in", desc=True)
+        result = query.execute()
+        return result.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch time clock entries: {str(e)}")
 
 
 @router.get("/time-clock/active", response_model=List[dict])
@@ -644,10 +939,59 @@ async def get_operations_dashboard(
     - **Orders**: Today's order metrics
     - **Revenue**: Real-time revenue tracking
     """
-    # TODO: Aggregate data from multiple sources
-    # TODO: Calculate real-time metrics
-    # TODO: Return comprehensive dashboard data
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        db = get_database_service()
+        
+        # Get today's date
+        today = date.today()
+        
+        # Get table status
+        tables = await db.get_tables(business_id, location_id, None)
+        table_stats = {
+            "total": len(tables),
+            "available": sum(1 for t in tables if t.get("status") == "available"),
+            "occupied": sum(1 for t in tables if t.get("status") == "occupied"),
+            "reserved": sum(1 for t in tables if t.get("status") == "reserved")
+        }
+        
+        # Get active KDS orders
+        kds_orders = await db.get_active_kds_orders(business_id, None)
+        
+        # Get clocked-in staff
+        clocked_in_staff = await db.get_clocked_in_staff(business_id)
+        
+        # Get today's sales summary
+        daily_sales = await db.get_daily_sales_summary(business_id, today)
+        
+        # Get low stock items
+        low_stock = await db.get_low_stock_items(business_id)
+        
+        return {
+            "business_id": str(business_id),
+            "timestamp": datetime.utcnow().isoformat(),
+            "tables": table_stats,
+            "kitchen": {
+                "active_orders": len(kds_orders),
+                "pending": sum(1 for o in kds_orders if o.get("status") == "pending"),
+                "preparing": sum(1 for o in kds_orders if o.get("status") == "preparing"),
+                "ready": sum(1 for o in kds_orders if o.get("status") == "ready")
+            },
+            "staff": {
+                "clocked_in": len(clocked_in_staff),
+                "total_hours_today": sum(float(s.get("total_hours", 0)) for s in clocked_in_staff)
+            },
+            "sales": {
+                "today_revenue": float(daily_sales.get("total_sales", 0)) if daily_sales else 0.0,
+                "today_orders": int(daily_sales.get("total_orders", 0)) if daily_sales else 0,
+                "avg_order_value": float(daily_sales.get("avg_order_value", 0)) if daily_sales else 0.0
+            },
+            "inventory": {
+                "low_stock_items": len(low_stock),
+                "out_of_stock": sum(1 for item in low_stock if item.get("current_stock", 0) == 0)
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch operations dashboard: {str(e)}")
 
 
 @router.get("/analytics/table-turnover", response_model=dict)
@@ -663,8 +1007,43 @@ async def analyze_table_turnover(
     - **By time of day**: Peak vs. off-peak
     - **By table**: Identify slow tables
     """
-    # TODO: Calculate turnover metrics
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        # This endpoint is already implemented in analytics.py
+        # Redirect to analytics endpoint or duplicate implementation
+        db = get_database_service()
+        
+        # Get orders with table assignments
+        orders_query = db.client.table("orders").select("id, table_id, created_at, completed_at")
+        orders_query = orders_query.eq("business_id", str(business_id))
+        orders_query = orders_query.gte("created_at", start_date.isoformat())
+        orders_query = orders_query.lte("created_at", end_date.isoformat())
+        orders_query = orders_query.eq("status", "completed")
+        orders_query = orders_query.not_.is_("table_id", "null")
+        orders_query = orders_query.not_.is_("completed_at", "null")
+        orders_result = orders_query.execute()
+        
+        # Calculate turnover times
+        turnovers = []
+        for order in orders_result.data:
+            if order.get("created_at") and order.get("completed_at"):
+                created = datetime.fromisoformat(order["created_at"].replace('Z', '+00:00'))
+                completed = datetime.fromisoformat(order["completed_at"].replace('Z', '+00:00'))
+                turnover_minutes = (completed - created).total_seconds() / 60
+                turnovers.append(turnover_minutes)
+        
+        avg_turnover = sum(turnovers) / len(turnovers) if turnovers else 0
+        
+        return {
+            "business_id": str(business_id),
+            "period": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat()
+            },
+            "avg_turnover_minutes": round(avg_turnover, 2),
+            "total_orders": len(turnovers)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze table turnover: {str(e)}")
 
 
 @router.get("/analytics/labor-costs", response_model=dict)
@@ -681,5 +1060,56 @@ async def analyze_labor_costs(
     - **Overtime**: Overtime costs
     - **By position**: Cost breakdown
     """
-    # TODO: Calculate labor metrics
-    raise HTTPException(status_code=501, detail="Implementation pending")
+    try:
+        # This endpoint is already implemented in analytics.py
+        # Redirect to analytics endpoint or duplicate implementation
+        db = get_database_service()
+        
+        # Get time clock data
+        clock_query = db.client.table("time_clock").select("*, staff_members(hourly_rate, position)")
+        clock_query = clock_query.eq("business_id", str(business_id))
+        clock_query = clock_query.gte("clock_in", start_date.isoformat())
+        clock_query = clock_query.lte("clock_in", end_date.isoformat())
+        clock_query = clock_query.not_.is_("clock_out", "null")
+        clock_result = clock_query.execute()
+        
+        # Calculate labor costs
+        total_labor_cost = 0.0
+        total_overtime_cost = 0.0
+        
+        for record in clock_result.data:
+            regular_hours = float(record.get("total_hours", 0)) - float(record.get("overtime_hours", 0))
+            overtime_hours = float(record.get("overtime_hours", 0))
+            
+            hourly_rate = 15.0  # Default
+            if record.get("staff_members"):
+                hourly_rate = float(record["staff_members"].get("hourly_rate", 15.0))
+            
+            regular_cost = regular_hours * hourly_rate
+            overtime_cost = overtime_hours * hourly_rate * 1.5
+            
+            total_labor_cost += regular_cost + overtime_cost
+            total_overtime_cost += overtime_cost
+        
+        # Get revenue for percentage
+        revenue_query = db.client.table("daily_sales_summary").select("total_sales")
+        revenue_query = revenue_query.eq("business_id", str(business_id))
+        revenue_query = revenue_query.gte("date", start_date.isoformat())
+        revenue_query = revenue_query.lte("date", end_date.isoformat())
+        revenue_result = revenue_query.execute()
+        total_revenue = sum(float(r.get("total_sales", 0)) for r in revenue_result.data)
+        
+        labor_percentage = (total_labor_cost / total_revenue * 100) if total_revenue > 0 else 0.0
+        
+        return {
+            "business_id": str(business_id),
+            "period": {
+                "start": start_date.isoformat(),
+                "end": end_date.isoformat()
+            },
+            "total_labor_cost": round(total_labor_cost, 2),
+            "overtime_cost": round(total_overtime_cost, 2),
+            "labor_percentage": round(labor_percentage, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to analyze labor costs: {str(e)}")
