@@ -1,0 +1,28 @@
+# Shared Libraries Requirements
+
+# Supabase Client
+supabase==2.7.0
+psycopg2-binary==2.9.9
+
+# OpenTelemetry (Distributed Tracing)
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-httpx==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-instrumentation-sqlalchemy==0.42b0
+opentelemetry-exporter-otlp-proto-grpc==1.21.0
+
+# Sentry (Error Tracking)
+sentry-sdk[fastapi]==1.39.1
+
+# Security & Auth
+pyjwt==2.8.0
+cryptography==41.0.7
+
+# Redis
+redis==5.0.8
+
+# Utilities
+python-dotenv==1.0.1
+pydantic==2.8.2
