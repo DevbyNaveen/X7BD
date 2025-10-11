@@ -173,7 +173,6 @@ class SupabaseManager:
                 user_id = response.user.id
                 profile_data = {
                     "id": user_id,
-                    "email": email,
                     **{k: v for k, v in user_data.items() if k not in ["password", "captcha_token"]}
                 }
                 

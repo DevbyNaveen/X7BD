@@ -204,6 +204,34 @@ class DatabaseService:
         return result.data[0] if result.data else None
     
     # ========================================================================
+    # USER OPERATIONS
+    # ========================================================================
+    
+    async def create_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create user"""
+        try:
+            # Convert UUID fields to strings for JSON serialization
+            if "id" in data:
+                data["id"] = str(data["id"])
+            
+            print(f"🔍 DEBUG: Creating user with data: {data}")
+            result = self.client.table("users").insert(data).execute()
+            print(f"🔍 DEBUG: User creation result: {result}")
+            
+            if not result.data:
+                raise Exception("User creation returned no data")
+            
+            return result.data[0]
+        except Exception as e:
+            print(f"💥 DEBUG: Error in create_user: {str(e)}")
+            raise
+    
+    async def user_exists(self, user_id: UUID) -> bool:
+        """Check if user exists"""
+        result = self.client.table("users").select("id").eq("id", str(user_id)).execute()
+        return len(result.data) > 0 if result.data else False
+
+    # ========================================================================
     # OPERATIONS
     # ========================================================================
     
@@ -248,8 +276,48 @@ class DatabaseService:
         result = self.client.table("tables").update(updates).eq("id", str(table_id)).execute()
         return result.data[0] if result.data else None
     
+    async def order_exists(self, order_id: UUID) -> bool:
+        """Check if order exists"""
+        result = self.client.table("orders").select("id").eq("id", str(order_id)).execute()
+        return len(result.data) > 0 if result.data else False
+    
+    async def create_order(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create order"""
+        try:
+            # Convert UUID fields to strings for JSON serialization
+            if "business_id" in data:
+                data["business_id"] = str(data["business_id"])
+            if "id" in data:
+                data["id"] = str(data["id"])
+            
+            print(f"🔍 DEBUG: Creating order with data: {data}")
+            result = self.client.table("orders").insert(data).execute()
+            print(f"🔍 DEBUG: Order creation result: {result}")
+            
+            if not result.data:
+                raise Exception("Order creation returned no data")
+            
+            return result.data[0]
+        except Exception as e:
+            print(f"💥 DEBUG: Error in create_order: {str(e)}")
+            raise
+    
     async def create_kds_order(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Create KDS order"""
+        # Convert UUID fields to strings for JSON serialization
+        if "business_id" in data:
+            data["business_id"] = str(data["business_id"])
+        if "order_id" in data:
+            data["order_id"] = str(data["order_id"])
+        if "assigned_to" in data and data["assigned_to"]:
+            data["assigned_to"] = str(data["assigned_to"])
+        
+        # Convert UUID fields in items
+        if "items" in data and data["items"]:
+            for item in data["items"]:
+                if "menu_item_id" in item:
+                    item["menu_item_id"] = str(item["menu_item_id"])
+        
         result = self.client.table("kds_orders").insert(data).execute()
         return result.data[0] if result.data else None
     
@@ -260,7 +328,9 @@ class DatabaseService:
     ) -> List[Dict[str, Any]]:
         """Get active KDS orders"""
         query = self.client.table("kds_orders").select("*").eq("business_id", str(business_id))
-        query = query.in_(["pending", "preparing"])
+        
+        # Filter for active statuses using OR conditions
+        query = query.or_("status.eq.pending,status.eq.preparing")
         
         if station:
             query = query.eq("station", station)
@@ -283,6 +353,22 @@ class DatabaseService:
         
         if timestamp_field:
             updates[timestamp_field] = datetime.utcnow().isoformat()
+        
+        result = self.client.table("kds_orders").update(updates).eq("id", str(order_id)).execute()
+        return result.data[0] if result.data else None
+    
+    async def update_kds_order_fields(
+        self,
+        order_id: UUID,
+        updates: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Update KDS order fields"""
+        # Add updated_at timestamp
+        updates["updated_at"] = datetime.utcnow().isoformat()
+        
+        # Convert UUID fields to strings
+        if "assigned_to" in updates and updates["assigned_to"]:
+            updates["assigned_to"] = str(updates["assigned_to"])
         
         result = self.client.table("kds_orders").update(updates).eq("id", str(order_id)).execute()
         return result.data[0] if result.data else None

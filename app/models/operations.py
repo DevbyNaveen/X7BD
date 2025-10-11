@@ -170,22 +170,24 @@ class TableAssignment(BaseModel):
     """Assign table to order"""
     table_id: UUID
     order_id: UUID
-    party_size: str = Field(..., min_length=1)
+    party_size: int = Field(..., ge=1)  # Change from str to int
     estimated_duration: Optional[int] = None  # minutes
     
-    @validator('party_size')
+    @validator('party_size', pre=True)
     def parse_party_size(cls, v):
         """Parse party_size from formats like '1:1' or '4'"""
         try:
-            if ":" in v:
+            if isinstance(v, int):
+                return v
+                
+            if ":" in str(v):
                 # Format like "1:1" - take the first number
-                return int(v.split(":")[0])
+                return int(str(v).split(":")[0])
             else:
                 # Format like "4" - direct integer
                 return int(v)
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, TypeError):
             raise ValueError("Invalid party_size format. Expected integer or format like '1:1'")
-
 
 class KDSOrderItem(BaseModel):
     """Kitchen Display System order item"""

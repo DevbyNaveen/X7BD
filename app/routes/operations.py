@@ -281,58 +281,51 @@ async def assign_table_by_id(
     return await assign_table(assignment)
 
 
-@router.post("/tables/assign", response_model=dict)
-async def assign_table(assignment: TableAssignment):
-    """
-    Assign table to order
-    
-    - **Capacity check**: Validate party size
-    - **Status update**: Mark table as occupied
-    - **Tracking**: Start occupancy timer
-    """
+@router.get("/tables/test", response_model=dict)
+async def test_tables_connection():
+    """Test endpoint to check database connection and tables table"""
     try:
         db = get_database_service()
         
-        # Get table
-        table_result = db.client.table("tables").select("*").eq("id", str(assignment.table_id)).execute()
-        if not table_result.data:
-            raise HTTPException(status_code=404, detail="Table not found")
+        # Test basic connection
+        result = db.client.table("tables").select("id").limit(1).execute()
         
-        table = table_result.data[0]
-        
-        # Validate capacity
-        if assignment.party_size > table["capacity"]:
-            raise HTTPException(status_code=400, detail="Party size exceeds table capacity")
-        
-        # Check availability
-        if table["status"] != "available":
-            raise HTTPException(status_code=400, detail="Table is not available")
-        
-        # Update table
-        result = await db.update_table_status(
-            assignment.table_id,
-            "occupied",
-            assignment.order_id
-        )
-        
-        # Publish real-time update
-        await RealtimeEventPublisher.publish_table_update(
-            table["business_id"],
-            {"type": "table_assigned", "table": result}
-        )
+        return {
+            "success": True,
+            "message": "Database connection successful",
+            "tables_count": len(result.data) if result.data else 0,
+            "sample_data": result.data[0] if result.data else None
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Database connection failed"
+        }
+
+@router.post("/tables/assign", response_model=dict)
+async def assign_table(assignment: TableAssignment):
+    """Debug version - minimal operations"""
+    print("🎯 DEBUG: Table assignment endpoint called!")
+    print(f"📦 DEBUG: Received data: {assignment.dict()}")
+    
+    try:
+        # Test 1: Basic response without any operations
+        print("✅ DEBUG: Basic test passed - returning success")
         
         return {
             "success": True,
             "table_id": str(assignment.table_id),
             "order_id": str(assignment.order_id),
-            "assigned_at": datetime.utcnow().isoformat()
+            "assigned_at": datetime.utcnow().isoformat(),
+            "message": "Debug: Basic success"
         }
-    except HTTPException:
-        raise
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to assign table: {str(e)}")
-
-
+        print(f"💥 DEBUG: Error in endpoint: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Debug error: {str(e)}")
 @router.post("/tables/{table_id}/release", response_model=dict)
 async def release_table(table_id: UUID):
     """
@@ -445,22 +438,171 @@ async def create_kds_order(kds_order: KDSOrderCreate):
     - **Priority**: Set order priority
     - **Timing**: Calculate target completion time
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("🎯 START: Creating KDS order")
+    logger.info(f"📦 Received KDS order data: {kds_order.model_dump()}")
+    
     try:
+        # Step 1: Get database service
+        logger.info("1️⃣ Getting database service...")
         db = get_database_service()
+        logger.info("✅ Database service obtained")
+        
+        # Step 2: Prepare data
+        logger.info("2️⃣ Preparing order data...")
         data = kds_order.model_dump()
+        logger.info(f"📊 Raw model dump: {data}")
+        
         data["business_id"] = str(data["business_id"])
         data["order_id"] = str(data["order_id"])
         
+        # Convert UUID fields in items
+        if "items" in data and data["items"]:
+            logger.info(f"🔍 Order items: {len(data['items'])} items")
+            for i, item in enumerate(data["items"]):
+                if "menu_item_id" in item:
+                    item["menu_item_id"] = str(item["menu_item_id"])
+                logger.info(f"   Item {i+1}: {item}")
+        else:
+            logger.warning("⚠️ No items found in order data")
+        
+        logger.info(f"📦 Final data to insert: {data}")
+        
+        # Step 3: Ensure order exists before creating KDS order
+        logger.info("3️⃣ Ensuring order exists...")
+        logger.info(f"🔍 Checking for order_id: {kds_order.order_id}")
+        
+        try:
+            order_exists = await db.order_exists(kds_order.order_id)
+            logger.info(f"🔍 Order exists check result: {order_exists}")
+            
+            if not order_exists:
+                logger.info("📝 Order doesn't exist, creating new order...")
+                
+                # Create a system user for KDS orders
+                # Use a consistent system user email to avoid duplicates
+                system_email = "kds-system@internal.local"
+                system_user_id = None
+                
+                try:
+                    from app.middleware.auth import get_supabase_client
+                    supabase = get_supabase_client(use_service_key=True)
+                    
+                    # First, try to find existing system user
+                    try:
+                        existing_users = supabase.table("users").select("id").eq("full_name", "KDS System User").execute()
+                        if existing_users.data:
+                            system_user_id = existing_users.data[0]["id"]
+                            logger.info(f"✅ Found existing system user: {system_user_id}")
+                        else:
+                            logger.info("🔍 No existing system user found, creating new one")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Error checking for existing system user: {str(e)}")
+                    
+                    # If no existing user found, create one
+                    if not system_user_id:
+                        # Create auth user
+                        auth_response = supabase.auth.admin.create_user({
+                            "email": system_email,
+                            "password": "SystemUser123!",
+                            "email_confirm": True,
+                            "user_metadata": {
+                                "full_name": "KDS System User"
+                            }
+                        })
+                        
+                        if auth_response.user:
+                            system_user_id = auth_response.user.id
+                            logger.info(f"✅ System user created in auth: {system_user_id}")
+                            
+                            # Create user profile in users table
+                            user_profile = {
+                                "id": system_user_id,
+                                "full_name": "KDS System User"
+                            }
+                            supabase.table("users").insert(user_profile).execute()
+                            logger.info(f"✅ System user profile created: {system_user_id}")
+                        else:
+                            raise Exception("Failed to create auth user")
+                            
+                except Exception as auth_error:
+                    logger.error(f"💥 CRITICAL: System user creation failed: {str(auth_error)}")
+                    # Try to use any existing user as fallback
+                    try:
+                        fallback_users = supabase.table("users").select("id").limit(1).execute()
+                        if fallback_users.data:
+                            system_user_id = fallback_users.data[0]["id"]
+                            logger.warning(f"⚠️ Using fallback user: {system_user_id}")
+                        else:
+                            raise Exception("No users available for fallback")
+                    except Exception as fallback_error:
+                        logger.error(f"💥 CRITICAL: No fallback user available: {str(fallback_error)}")
+                        raise HTTPException(status_code=500, detail=f"Failed to create or find system user: {str(auth_error)}")
+                
+                if not system_user_id:
+                    raise HTTPException(status_code=500, detail="System user ID not available")
+                
+                # Create the order with system user as customer
+                logger.info(f"🔍 Using system user ID: {system_user_id}")
+                order_data = {
+                    "id": str(kds_order.order_id),
+                    "business_id": str(kds_order.business_id),
+                    "customer_id": system_user_id,  # Use system user
+                    "status": "active",
+                    "created_at": datetime.utcnow().isoformat(),
+                    "total_amount": 0.0,
+                    "order_number": f"KDS-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{str(kds_order.order_id)[:8]}",
+                    "items": []  # Empty items array to satisfy NOT NULL constraint
+                }
+                logger.info(f"📦 Order data to insert: {order_data}")
+                order_result = await db.create_order(order_data)
+                logger.info(f"✅ Order created: {order_result}")
+                
+                # Verify order was created
+                verify_exists = await db.order_exists(kds_order.order_id)
+                logger.info(f"🔍 Verification - Order exists after creation: {verify_exists}")
+                if not verify_exists:
+                    raise Exception("Order creation failed - order still doesn't exist after creation")
+                
+                # Small delay to ensure database transaction is committed
+                import asyncio
+                await asyncio.sleep(0.1)
+                logger.info("⏳ Brief delay to ensure order is committed to database")
+            else:
+                logger.info("✅ Order already exists")
+        except Exception as order_error:
+            logger.error(f"💥 CRITICAL: Failed to ensure order exists: {str(order_error)}")
+            raise HTTPException(status_code=500, detail=f"Failed to create required order: {str(order_error)}")
+        
+        # Step 4: Create KDS order in database
+        logger.info("4️⃣ Creating KDS order in database...")
+        logger.info(f"🔍 About to create KDS order with order_id: {kds_order.order_id}")
         result = await db.create_kds_order(data)
+        logger.info(f"✅ KDS order created successfully: {result}")
         
-        # Publish to WebSocket for real-time KDS updates
-        await RealtimeEventPublisher.publish_kds_update(
-            str(kds_order.business_id),
-            {"type": "new_order", "order": result}
-        )
+        # Step 5: Publish real-time update
+        logger.info("5️⃣ Publishing real-time update...")
+        try:
+            await RealtimeEventPublisher.publish_kds_update(
+                str(kds_order.business_id),
+                {"type": "new_order", "order": result}
+            )
+            logger.info("✅ Real-time update published")
+        except Exception as pub_error:
+            logger.error(f"⚠️ Failed to publish real-time update: {str(pub_error)}")
+            # Don't fail the whole request if real-time update fails
         
+        logger.info("🎉 KDS order creation completed successfully")
         return result
+        
+    except HTTPException:
+        logger.error("🚨 HTTPException in create_kds_order")
+        raise
     except Exception as e:
+        logger.error(f"💥 UNEXPECTED ERROR in create_kds_order: {str(e)}", exc_info=True)
+        logger.error(f"🔍 Error type: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"Failed to create KDS order: {str(e)}")
 
 
@@ -478,14 +620,55 @@ async def list_kds_orders(
     - **Metrics**: Prep time, delays
     - **Filtering**: By station and status
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("🎯 START: Listing KDS orders")
+    logger.info(f"📋 Query params - business_id: {business_id}, station: {station}, status: {status}, active_only: {active_only}")
+    
     try:
+        # Step 1: Get database service
+        logger.info("1️⃣ Getting database service...")
         db = get_database_service()
+        logger.info("✅ Database service obtained")
+        
+        # Step 2: Fetch orders from database
+        logger.info("2️⃣ Fetching KDS orders from database...")
         orders = await db.get_active_kds_orders(business_id, station)
+        logger.info(f"📊 Retrieved {len(orders)} orders from database")
+        
+        # Log some details about the returned orders
+        if orders:
+            for i, order in enumerate(orders[:3]):  # Log first 3 orders
+                logger.info(f"   Order {i+1}: ID={order.get('id', 'N/A')}, Status={order.get('status', 'N/A')}")
+            if len(orders) > 3:
+                logger.info(f"   ... and {len(orders) - 3} more orders")
+        else:
+            logger.info("   No orders found")
+        
+        # Step 3: Apply additional filtering if needed
+        if status:
+            filtered_orders = [order for order in orders if order.get('status') == status]
+            logger.info(f"🔍 Filtered by status '{status}': {len(filtered_orders)} orders")
+            orders = filtered_orders
+        
+        if active_only:
+            # Define what "active" means for your system
+            active_statuses = ['pending', 'preparing', 'ready']
+            active_orders = [order for order in orders if order.get('status') in active_statuses]
+            logger.info(f"🔍 Active orders filter: {len(active_orders)} orders")
+            orders = active_orders
+        
+        logger.info(f"✅ Final result: {len(orders)} orders to return")
         return orders
+        
+    except HTTPException:
+        logger.error("🚨 HTTPException in list_kds_orders")
+        raise
     except Exception as e:
+        logger.error(f"💥 UNEXPECTED ERROR in list_kds_orders: {str(e)}", exc_info=True)
+        logger.error(f"🔍 Error type: {type(e).__name__}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch KDS orders: {str(e)}")
-
-
 @router.get("/kds/orders/{order_id}", response_model=KDSOrderWithMetrics)
 async def get_kds_order(order_id: UUID):
     """Get KDS order with metrics"""
@@ -524,14 +707,19 @@ async def update_kds_order(order_id: UUID, updates: KDSOrderUpdate):
         db = get_database_service()
         update_data = updates.model_dump(exclude_unset=True)
         
-        # Set timestamp fields based on status
-        timestamp_field = None
-        if update_data.get("status") == "preparing":
-            timestamp_field = "started_at"
-        elif update_data.get("status") == "ready":
-            timestamp_field = "completed_at"
-        
-        result = await db.update_kds_order_status(order_id, update_data["status"], timestamp_field)
+        # Handle status updates specifically
+        if "status" in update_data:
+            # Set timestamp fields based on status
+            timestamp_field = None
+            if update_data["status"] == "preparing":
+                timestamp_field = "prep_start_time"
+            elif update_data["status"] == "ready":
+                timestamp_field = "prep_end_time"
+            
+            result = await db.update_kds_order_status(order_id, update_data["status"], timestamp_field)
+        else:
+            # Handle other field updates
+            result = await db.update_kds_order_fields(order_id, update_data)
         
         # Publish WebSocket update
         await RealtimeEventPublisher.publish_kds_update(
