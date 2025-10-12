@@ -3,8 +3,8 @@ Operations Management Models
 Enterprise-grade data models for tables, floor plans, and kitchen operations
 """
 
-from pydantic import BaseModel, Field, validator
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, validator, field_validator
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, time
 from decimal import Decimal
 from uuid import UUID
@@ -266,10 +266,18 @@ class StaffMemberBase(BaseModel):
     position: Optional[str] = Field(None, max_length=100)
     department: Optional[str] = Field(None, max_length=100)
     hourly_rate: Optional[Decimal] = Field(None, ge=0, )
-    hire_date: Optional[datetime] = None
+    hire_date: Optional[datetime] = Field(None)
     status: str = Field(default="active", pattern=r"^(active|inactive|terminated)$")
     permissions: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator('hire_date', mode='before')
+    @classmethod
+    def validate_hire_date(cls, v):
+        """Convert empty string to None for hire_date"""
+        if v == "":
+            return None
+        return v
 
 
 class StaffMemberCreate(StaffMemberBase):
@@ -287,11 +295,19 @@ class StaffMemberUpdate(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     position: Optional[str] = Field(None, max_length=100)
     department: Optional[str] = Field(None, max_length=100)
-    hourly_rate: Optional[Decimal] = Field(None, ge=0, )
+    hourly_rate: Optional[Union[str, float]] = None  # Accept both string and number
     hire_date: Optional[datetime] = None
     status: Optional[str] = Field(None, pattern=r"^(active|inactive|terminated)$")
     permissions: Optional[List[str]] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator('hire_date', mode='before')
+    @classmethod
+    def validate_hire_date(cls, v):
+        """Convert empty string to None for hire_date"""
+        if v == "":
+            return None
+        return v
 
 
 class StaffMember(StaffMemberBase):
@@ -317,6 +333,30 @@ class StaffScheduleBase(BaseModel):
     position: Optional[str] = Field(None, max_length=100)
     notes: Optional[str] = None
     status: ShiftStatus = ShiftStatus.SCHEDULED
+
+    @field_validator('shift_date', mode='before')
+    @classmethod
+    def validate_shift_date(cls, v):
+        """Convert empty string to None for shift_date"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('shift_start', mode='before')
+    @classmethod
+    def validate_shift_start(cls, v):
+        """Convert empty string to None for shift_start"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('shift_end', mode='before')
+    @classmethod
+    def validate_shift_end(cls, v):
+        """Convert empty string to None for shift_end"""
+        if v == "":
+            return None
+        return v
 
 
 class StaffScheduleCreate(StaffScheduleBase):
@@ -353,6 +393,14 @@ class TimeClockBase(BaseModel):
     location_id: Optional[UUID] = None
     notes: Optional[str] = None
 
+    @field_validator('clock_in', mode='before')
+    @classmethod
+    def validate_clock_in(cls, v):
+        """Convert empty string to None for clock_in"""
+        if v == "":
+            return None
+        return v
+
 
 class TimeClockCreate(TimeClockBase):
     """Clock in"""
@@ -365,6 +413,30 @@ class TimeClockUpdate(BaseModel):
     break_start: Optional[datetime] = None
     break_end: Optional[datetime] = None
     notes: Optional[str] = None
+
+    @field_validator('clock_out', mode='before')
+    @classmethod
+    def validate_clock_out(cls, v):
+        """Convert empty string to None for clock_out"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('break_start', mode='before')
+    @classmethod
+    def validate_break_start(cls, v):
+        """Convert empty string to None for break_start"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('break_end', mode='before')
+    @classmethod
+    def validate_break_end(cls, v):
+        """Convert empty string to None for break_end"""
+        if v == "":
+            return None
+        return v
 
 
 class TimeClock(TimeClockBase):

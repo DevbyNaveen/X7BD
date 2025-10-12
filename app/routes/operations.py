@@ -9,9 +9,12 @@ ENTERPRISE STRUCTURE:
 """
 
 from fastapi import APIRouter, HTTPException, Query, status, WebSocket
+from fastapi.responses import JSONResponse
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
+from decimal import Decimal
+import json
 
 from ..models.operations import (
     Location, LocationCreate, LocationUpdate,
@@ -842,29 +845,72 @@ async def kds_live_feed(websocket: WebSocket, business_id: UUID):
 # STAFF MANAGEMENT (Should be moved to universal /api/v1/staff)
 # ============================================================================
 
-@router.post("/staff", response_model=StaffMember, status_code=status.HTTP_201_CREATED)
+@router.post("/staff/members", response_model=StaffMember, status_code=status.HTTP_201_CREATED)
 async def create_staff_member(staff: StaffMemberCreate):
     """Create new staff member"""
     try:
+        # Add logging to see what's received
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"📦 Received staff creation data: {staff.model_dump()}")
+        print(f"🎯 Backend received: {staff.model_dump()}")  # Also print to console
+        
         db = get_database_service()
         data = staff.model_dump()
         data["business_id"] = str(data["business_id"])
         if data.get("user_id"):
             data["user_id"] = str(data["user_id"])
         
+        # Handle empty hire_date string
+        if data.get("hire_date") == "":
+            data["hire_date"] = None
+        
+        # Convert Decimal to float for JSON serialization
+        if data.get("hourly_rate") is not None:
+            data["hourly_rate"] = float(data["hourly_rate"])
+        
         result = await db.create_staff_member(data)
+        
+        # Ensure Decimal fields are converted to float for JSON serialization
+        if result and isinstance(result, dict):
+            if 'hourly_rate' in result and isinstance(result['hourly_rate'], Decimal):
+                result['hourly_rate'] = float(result['hourly_rate'])
+        
         return result
     except Exception as e:
+        logger.error(f"❌ Error creating staff: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to create staff member: {str(e)}")
 
 
 @router.get("/staff", response_model=List[StaffMember])
+async def list_staff_members_short(
+    business_id: UUID = Query(...),
+    status: Optional[str] = Query(None),
+    position: Optional[str] = Query(None)
+):
+    """List staff members (short endpoint)"""
+    try:
+        db = get_database_service()
+        query = db.client.table("staff_members").select("*").eq("business_id", str(business_id))
+        
+        if status:
+            query = query.eq("status", status)
+        if position:
+            query = query.eq("position", position)
+        
+        result = query.execute()
+        return result.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch staff members: {str(e)}")
+
+
+@router.get("/staff/members", response_model=List[StaffMember])
 async def list_staff_members(
     business_id: UUID = Query(...),
     status: Optional[str] = Query(None),
     position: Optional[str] = Query(None)
 ):
-    """List staff members"""
+    """List staff members (full endpoint)"""
     try:
         db = get_database_service()
         query = db.client.table("staff_members").select("*").eq("business_id", str(business_id))
@@ -905,10 +951,24 @@ async def update_staff_member(staff_id: UUID, updates: StaffMemberUpdate):
         update_data = updates.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.utcnow().isoformat()
         
+        # Handle empty hire_date string
+        if update_data.get("hire_date") == "":
+            update_data["hire_date"] = None
+        
+        # Convert Decimal to float for JSON serialization
+        if update_data.get("hourly_rate") is not None:
+            if isinstance(update_data["hourly_rate"], Decimal):
+                update_data["hourly_rate"] = float(update_data["hourly_rate"])
+        
         result = db.client.table("staff_members").update(update_data).eq("id", str(staff_id)).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Staff member not found")
+        
+        # Ensure Decimal fields are converted to float for JSON serialization
+        if result.data[0] and isinstance(result.data[0], dict):
+            if 'hourly_rate' in result.data[0] and isinstance(result.data[0]['hourly_rate'], Decimal):
+                result.data[0]['hourly_rate'] = float(result.data[0]['hourly_rate'])
         
         return result.data[0]
     except HTTPException:
@@ -942,9 +1002,22 @@ async def create_schedule(schedule: StaffScheduleCreate):
         data["staff_id"] = str(data["staff_id"])
         if data.get("location_id"):
             data["location_id"] = str(data["location_id"])
-        data["shift_date"] = data["shift_date"].isoformat()
-        data["shift_start"] = str(data["shift_start"])
-        data["shift_end"] = str(data["shift_end"])
+        
+        # Handle empty datetime/time strings
+        if data.get("shift_date") == "":
+            data["shift_date"] = None
+        elif data.get("shift_date"):
+            data["shift_date"] = data["shift_date"].isoformat()
+            
+        if data.get("shift_start") == "":
+            data["shift_start"] = None
+        elif data.get("shift_start"):
+            data["shift_start"] = str(data["shift_start"])
+            
+        if data.get("shift_end") == "":
+            data["shift_end"] = None
+        elif data.get("shift_end"):
+            data["shift_end"] = str(data["shift_end"])
         
         result = db.client.table("staff_schedules").insert(data).execute()
         return result.data[0] if result.data else None
@@ -1040,6 +1113,9 @@ async def clock_in(clock_in_data: TimeClockCreate):
     - **Notifications**: Alert manager of early/late clock-in
     """
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         db = get_database_service()
         data = clock_in_data.model_dump()
         data["business_id"] = str(data["business_id"])
@@ -1047,13 +1123,34 @@ async def clock_in(clock_in_data: TimeClockCreate):
         if data.get("location_id"):
             data["location_id"] = str(data["location_id"])
         
+        # Handle empty clock_in string
+        if data.get("clock_in") == "":
+            data["clock_in"] = None
+        elif data.get("clock_in"):
+            # Ensure timezone-aware datetime
+            clock_in_dt = data["clock_in"]
+            if isinstance(clock_in_dt, datetime) and clock_in_dt.tzinfo is None:
+                clock_in_dt = clock_in_dt.replace(tzinfo=timezone.utc)
+            data["clock_in"] = clock_in_dt.isoformat()
+        
         result = await db.clock_in_staff(data)
         
-        # Publish staff update
-        await RealtimeEventPublisher.publish_staff_update(
-            str(clock_in_data.business_id),
-            {"type": "clock_in", "staff": result}
-        )
+        # Ensure Decimal fields are converted to float for JSON serialization
+        if result and isinstance(result, dict):
+            if 'total_hours' in result and isinstance(result['total_hours'], Decimal):
+                result['total_hours'] = float(result['total_hours'])
+            if 'overtime_hours' in result and isinstance(result['overtime_hours'], Decimal):
+                result['overtime_hours'] = float(result['overtime_hours'])
+        
+        # Publish staff update (optional - don't fail if this errors)
+        try:
+            await RealtimeEventPublisher.publish_staff_update(
+                str(clock_in_data.business_id),
+                {"type": "clock_in", "staff": result}
+            )
+        except Exception as pub_error:
+            logger.warning(f"⚠️ Failed to publish real-time update: {str(pub_error)}")
+            # Don't fail the whole request if real-time update fails
         
         return result
     except Exception as e:
@@ -1070,21 +1167,45 @@ async def clock_out(clock_id: UUID, clock_out_time: Optional[datetime] = None):
     - **Breaks**: Account for break time
     """
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🕐 Clock out request for clock_id: {clock_id}")
+        
         db = get_database_service()
         
         if not clock_out_time:
-            clock_out_time = datetime.utcnow()
+            clock_out_time = datetime.utcnow().replace(tzinfo=timezone.utc)
+        
+        logger.info(f"🕐 Clock out time: {clock_out_time}")
         
         result = await db.clock_out_staff(clock_id, clock_out_time)
+        logger.info(f"🕐 Clock out result: {result}")
         
-        # Publish staff update
-        await RealtimeEventPublisher.publish_staff_update(
-            result["business_id"],
-            {"type": "clock_out", "staff": result}
-        )
+        # Ensure Decimal fields are converted to float for JSON serialization
+        if result and isinstance(result, dict):
+            if 'total_hours' in result and isinstance(result['total_hours'], Decimal):
+                result['total_hours'] = float(result['total_hours'])
+            if 'overtime_hours' in result and isinstance(result['overtime_hours'], Decimal):
+                result['overtime_hours'] = float(result['overtime_hours'])
+        
+        # Publish staff update (optional - don't fail if this errors)
+        try:
+            await RealtimeEventPublisher.publish_staff_update(
+                result["business_id"],
+                {"type": "clock_out", "staff": result}
+            )
+        except Exception as pub_error:
+            logger.warning(f"⚠️ Failed to publish real-time update: {str(pub_error)}")
+            # Don't fail the whole request if real-time update fails
         
         return result
+    except ValueError as ve:
+        logger.error(f"❌ Clock out validation error: {str(ve)}")
+        raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
+        logger.error(f"❌ Clock out error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to clock out: {str(e)}")
 
 

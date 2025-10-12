@@ -5,7 +5,7 @@ Enterprise-grade database operations with Supabase
 
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 import os
 from supabase import create_client, Client
@@ -396,6 +396,12 @@ class DatabaseService:
         
         clock_record = clock_result.data[0]
         clock_in_time = datetime.fromisoformat(clock_record["clock_in"])
+        
+        # Ensure both datetimes are timezone-aware (UTC)
+        if clock_in_time.tzinfo is None:
+            clock_in_time = clock_in_time.replace(tzinfo=timezone.utc)
+        if clock_out_time.tzinfo is None:
+            clock_out_time = clock_out_time.replace(tzinfo=timezone.utc)
         
         # Calculate hours
         total_seconds = (clock_out_time - clock_in_time).total_seconds()
