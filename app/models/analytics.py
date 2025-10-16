@@ -1,0 +1,217 @@
+"""
+Analytics Models
+Enterprise-grade data models for menu analytics and performance metrics
+"""
+
+from pydantic import BaseModel, Field, validator
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+from decimal import Decimal
+from uuid import UUID
+
+
+# ============================================================================
+# MENU ANALYTICS OVERVIEW MODELS
+# ============================================================================
+
+class MenuAnalyticsOverview(BaseModel):
+    """Menu analytics overview with key metrics and trends"""
+    business_id: str
+    period: str
+    total_menu_items: int
+    popular_items: int
+    average_rating: float
+    total_categories: int
+    items_growth: float
+    rating_growth: float
+    categories_growth: float
+    popularity_growth: float
+    performance_score: float
+    last_updated: datetime
+    trends_included: bool = True
+
+
+# ============================================================================
+# MENU ITEM PERFORMANCE MODELS
+# ============================================================================
+
+class MenuItemPerformance(BaseModel):
+    """Individual menu item performance metrics"""
+    item_id: str
+    name: str
+    category_name: str
+    price: float
+    cost: float
+    sales_count: int
+    total_quantity: int
+    total_revenue: float
+    total_cost: float
+    profit_margin: float
+    margin_percentage: float
+    image_url: Optional[str] = None
+    is_available: bool = True
+    tags: List[str] = Field(default_factory=list)
+
+
+class TopMenuItemsResponse(BaseModel):
+    """Response model for top menu items analytics"""
+    business_id: str
+    period: str
+    sort_by: str
+    total_items: int
+    items: List[MenuItemPerformance]
+    generated_at: datetime
+
+
+# ============================================================================
+# CATEGORY PERFORMANCE MODELS
+# ============================================================================
+
+class CategoryPerformance(BaseModel):
+    """Category performance metrics"""
+    category_id: str
+    category_name: str
+    total_items: int
+    available_items: int
+    avg_price: float
+    avg_cost: float
+    avg_profit_margin: float
+    profit_margin_percentage: float
+    total_sales: int
+    total_revenue: float
+    total_profit: float
+    performance_score: float
+    growth_percentage: float
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class CategoryPerformanceResponse(BaseModel):
+    """Response model for category performance analytics"""
+    business_id: str
+    period: str
+    total_categories: int
+    categories: List[CategoryPerformance]
+    include_details: bool = True
+    generated_at: datetime
+
+
+# ============================================================================
+# PROFIT MARGIN ANALYSIS MODELS
+# ============================================================================
+
+class ProfitMarginAnalysis(BaseModel):
+    """Individual item profit margin analysis"""
+    item_id: str
+    name: str
+    price: float
+    cost: float
+    profit_margin: float
+    margin_percentage: float
+    category_id: Optional[str] = None
+    is_available: bool = True
+
+
+class ProfitMarginRecommendation(BaseModel):
+    """Profit margin optimization recommendation"""
+    type: str  # pricing, cost_tracking, overall_margin, opportunity
+    priority: str  # high, medium, low
+    title: str
+    message: str
+    affected_items: List[str]
+    action: str
+
+
+class ProfitMarginResponse(BaseModel):
+    """Response model for profit margin analysis"""
+    business_id: str
+    total_items: int
+    items_with_cost: int
+    items_without_cost: int
+    overall_analysis: Dict[str, Any]
+    high_margin_items: List[Dict[str, Any]]
+    low_margin_items: List[Dict[str, Any]]
+    medium_margin_items: List[Dict[str, Any]]
+    margin_distribution: List[Dict[str, Any]]
+    recommendations: List[Dict[str, Any]]
+    analysis_date: datetime
+
+
+# ============================================================================
+# COMPREHENSIVE ANALYTICS RESPONSE MODELS
+# ============================================================================
+
+class MenuAnalyticsResponse(BaseModel):
+    """Comprehensive menu analytics dashboard response"""
+    business_id: str
+    period: str
+    overview: MenuAnalyticsOverview
+    top_items: TopMenuItemsResponse
+    category_performance: CategoryPerformanceResponse
+    profit_margins: ProfitMarginResponse
+    generated_at: datetime
+    cache_expires_at: datetime
+
+
+# ============================================================================
+# ANALYTICS FILTER MODELS
+# ============================================================================
+
+class AnalyticsFilter(BaseModel):
+    """Analytics filtering options"""
+    period: str = Field(default="7d", pattern=r"^(1d|7d|30d|90d)$")
+    business_id: UUID
+    include_trends: bool = True
+    include_details: bool = True
+    include_recommendations: bool = True
+    margin_threshold_high: float = Field(default=70.0, ge=0, le=100)
+    margin_threshold_low: float = Field(default=30.0, ge=0, le=100)
+    sort_by: str = Field(default="revenue", pattern=r"^(sales|revenue|margin)$")
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+# ============================================================================
+# ANALYTICS EXPORT MODELS
+# ============================================================================
+
+class AnalyticsExportRequest(BaseModel):
+    """Request model for analytics data export"""
+    business_id: UUID
+    export_format: str = Field(default="json", pattern=r"^(json|csv|pdf)$")
+    period: str = Field(default="7d", pattern=r"^(1d|7d|30d|90d)$")
+    include_charts: bool = True
+    include_recommendations: bool = True
+
+
+class AnalyticsExportResponse(BaseModel):
+    """Response model for analytics export"""
+    export_id: str
+    business_id: str
+    export_format: str
+    file_url: Optional[str] = None
+    file_size: Optional[int] = None
+    generated_at: datetime
+    expires_at: datetime
+
+
+# ============================================================================
+# REAL-TIME ANALYTICS MODELS
+# ============================================================================
+
+class AnalyticsUpdateEvent(BaseModel):
+    """Real-time analytics update event"""
+    event_type: str  # analytics_refreshed, data_updated, cache_invalidated
+    business_id: str
+    timestamp: datetime
+    data_type: Optional[str] = None  # overview, top_items, categories, margins
+    force_refresh: bool = False
+
+
+class AnalyticsCacheStatus(BaseModel):
+    """Analytics cache status"""
+    business_id: str
+    cache_key: str
+    is_cached: bool
+    cached_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    data_size: Optional[int] = None
