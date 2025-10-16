@@ -80,11 +80,24 @@ async def get_menu_analytics_overview(
         available_items = len([item for item in menu_items if item.get("is_available", True)])
         total_categories = len(categories)
         
-        # Calculate average rating (mock data - would come from reviews table)
-        avg_rating = 4.6  # Mock value
+        # Calculate average rating from actual reviews
+        reviews_result = db.client.table("menu_item_reviews").select("rating").eq("business_id", str(business_id)).eq("is_public", True).execute()
+        if reviews_result.data and len(reviews_result.data) > 0:
+            avg_rating = sum(review["rating"] for review in reviews_result.data) / len(reviews_result.data)
+        else:
+            avg_rating = 0.0  # No reviews yet
         
-        # Calculate popular items (items with high sales - mock data)
-        popular_items_count = len([item for item in menu_items if item.get("is_available", True)]) // 3
+        # Calculate popular items based on actual sales data
+        # Get items with sales data and sort by quantity sold
+        items_with_sales = []
+        for perf in item_performance:
+            if perf.get("quantity_sold", 0) > 0:
+                items_with_sales.append(perf)
+        
+        # Sort by sales count and take top 30% as "popular"
+        items_with_sales.sort(key=lambda x: x.get("quantity_sold", 0), reverse=True)
+        popular_threshold = max(1, len(items_with_sales) // 3)  # Top 1/3 of items with sales
+        popular_items_count = min(popular_threshold, len(items_with_sales))
         
         # Calculate growth trends (mock data - would compare with previous period)
         items_growth = 15.2  # Mock growth percentage
@@ -395,6 +408,13 @@ async def analyze_profit_margins(
     margin_threshold_high: float = Query(70.0, ge=0, le=100),
     margin_threshold_low: float = Query(30.0, ge=0, le=100)
 ):
+    # Handle direct function calls (not through FastAPI) by extracting default values
+    if hasattr(include_recommendations, 'default'):
+        include_recommendations = include_recommendations.default
+    if hasattr(margin_threshold_high, 'default'):
+        margin_threshold_high = margin_threshold_high.default
+    if hasattr(margin_threshold_low, 'default'):
+        margin_threshold_low = margin_threshold_low.default
     """
     Comprehensive profit margin analysis across menu
     
@@ -413,6 +433,8 @@ async def analyze_profit_margins(
             return ProfitMarginResponse(
                 business_id=str(business_id),
                 total_items=0,
+                items_with_cost=0,
+                items_without_cost=0,
                 overall_analysis={
                     "total_revenue": 0,
                     "total_cost": 0,
@@ -475,7 +497,8 @@ async def analyze_profit_margins(
         margin_distribution = [
             {"range": f"High (>{margin_threshold_high}%)", "count": len(high_margin_items), "percentage": round(len(high_margin_items) / total_items * 100, 1)},
             {"range": f"Medium ({margin_threshold_low}-{margin_threshold_high}%)", "count": len(medium_margin_items), "percentage": round(len(medium_margin_items) / total_items * 100, 1)},
-            {"range": f"Low (<{margin_threshold_low}%)", "count": len(low_margin_items), "percentage": round(len(low_margin_items) / total_items * 100, 1)}
+            {"range": f"Low (<{margin_threshold_low}%)", "count": len(low_margin_items), "percentage": round(len(low_margin_items) / total_items * 100, 1)},
+            {"range": "No Cost Data", "count": len(items_without_cost), "percentage": round(len(items_without_cost) / total_items * 100, 1)}
         ]
         
         # Generate recommendations
