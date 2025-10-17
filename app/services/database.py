@@ -429,6 +429,192 @@ class DatabaseService:
         return result.data
     
     # ========================================================================
+    # QR CODE OPERATIONS
+    # ========================================================================
+    
+    async def create_qr_code(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create QR code record"""
+        try:
+            # Convert UUID fields to strings for JSON serialization
+            if "target_id" in data:
+                data["target_id"] = str(data["target_id"])
+            if "business_id" in data:
+                data["business_id"] = str(data["business_id"])
+            
+            print(f"🔍 DEBUG: Creating QR code with data: {data}")
+            result = self.client.table("qr_codes").insert(data).execute()
+            print(f"🔍 DEBUG: QR code creation result: {result}")
+            
+            if not result.data:
+                raise Exception("QR code creation returned no data")
+            
+            return result.data[0]
+        except Exception as e:
+            print(f"💥 DEBUG: Error in create_qr_code: {str(e)}")
+            raise
+    
+    async def get_qr_code(self, qr_id: str) -> Optional[Dict[str, Any]]:
+        """Get QR code by ID"""
+        try:
+            result = self.client.table("qr_codes").select("*").eq("id", qr_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"💥 DEBUG: Error in get_qr_code: {str(e)}")
+            return None
+    
+    async def get_qr_codes_by_business(
+        self,
+        business_id: UUID,
+        qr_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """Get QR codes for business with filtering"""
+        try:
+            query = self.client.table("qr_codes").select("*").eq("business_id", str(business_id))
+            
+            if qr_type:
+                query = query.eq("type", qr_type)
+            if is_active is not None:
+                query = query.eq("is_active", is_active)
+            
+            query = query.range(offset, offset + limit - 1).order("created_at", desc=True)
+            result = query.execute()
+            return result.data
+        except Exception as e:
+            print(f"💥 DEBUG: Error in get_qr_codes_by_business: {str(e)}")
+            return []
+    
+    async def update_qr_code(self, qr_id: str, updates: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update QR code"""
+        try:
+            result = self.client.table("qr_codes").update(updates).eq("id", qr_id).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"💥 DEBUG: Error in update_qr_code: {str(e)}")
+            return None
+    
+    async def delete_qr_code(self, qr_id: str) -> bool:
+        """Delete QR code"""
+        try:
+            result = self.client.table("qr_codes").delete().eq("id", qr_id).execute()
+            return bool(result.data)
+        except Exception as e:
+            print(f"💥 DEBUG: Error in delete_qr_code: {str(e)}")
+            return False
+    
+    async def log_qr_scan(self, scan_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Log QR code scan event"""
+        try:
+            # Convert UUID fields to strings for JSON serialization
+            if "target_id" in scan_data:
+                scan_data["target_id"] = str(scan_data["target_id"])
+            if "business_id" in scan_data:
+                scan_data["business_id"] = str(scan_data["business_id"])
+            
+            print(f"🔍 DEBUG: Logging QR scan with data: {scan_data}")
+            result = self.client.table("qr_scans").insert(scan_data).execute()
+            print(f"🔍 DEBUG: QR scan logging result: {result}")
+            
+            if not result.data:
+                raise Exception("QR scan logging returned no data")
+            
+            return result.data[0]
+        except Exception as e:
+            print(f"💥 DEBUG: Error in log_qr_scan: {str(e)}")
+            raise
+    
+    async def get_qr_scan_analytics(
+        self,
+        business_id: UUID,
+        start_date: datetime,
+        end_date: datetime,
+        qr_type: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get QR scan analytics for business"""
+        try:
+            query = self.client.table("qr_scans").select("*").eq("business_id", str(business_id))
+            query = query.gte("scanned_at", start_date.isoformat())
+            query = query.lte("scanned_at", end_date.isoformat())
+            
+            if qr_type:
+                query = query.eq("qr_type", qr_type)
+            
+            result = query.execute()
+            scans = result.data
+            
+            # Calculate analytics
+            total_scans = len(scans)
+            unique_qr_codes = len(set(scan["qr_id"] for scan in scans))
+            
+            # Group by QR type
+            scans_by_type = {}
+            for scan in scans:
+                scan_type = scan["qr_type"]
+                if scan_type not in scans_by_type:
+                    scans_by_type[scan_type] = 0
+                scans_by_type[scan_type] += 1
+            
+            # Group by hour for peak hours
+            scans_by_hour = {}
+            for scan in scans:
+                hour = datetime.fromisoformat(scan["scanned_at"].replace('Z', '+00:00')).hour
+                if hour not in scans_by_hour:
+                    scans_by_hour[hour] = 0
+                scans_by_hour[hour] += 1
+            
+            peak_hours = sorted(scans_by_hour.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            return {
+                "total_scans": total_scans,
+                "unique_qr_codes": unique_qr_codes,
+                "scans_by_type": scans_by_type,
+                "peak_hours": [{"hour": hour, "scans": count} for hour, count in peak_hours],
+                "period": {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                }
+            }
+        except Exception as e:
+            print(f"💥 DEBUG: Error in get_qr_scan_analytics: {str(e)}")
+            return {
+                "total_scans": 0,
+                "unique_qr_codes": 0,
+                "scans_by_type": {},
+                "peak_hours": [],
+                "period": {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat()
+                }
+            }
+    
+    async def get_popular_qr_codes(
+        self,
+        business_id: UUID,
+        limit: int = 10,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """Get most popular QR codes by scan count"""
+        try:
+            query = self.client.table("qr_codes").select("*, qr_scans(count)")
+            query = query.eq("business_id", str(business_id))
+            query = query.eq("is_active", True)
+            
+            if start_date and end_date:
+                # This would require a more complex query with joins
+                # For now, we'll get all QR codes and filter by scan count
+                pass
+            
+            query = query.order("scan_count", desc=True).limit(limit)
+            result = query.execute()
+            return result.data
+        except Exception as e:
+            print(f"💥 DEBUG: Error in get_popular_qr_codes: {str(e)}")
+            return []
+
+    # ========================================================================
     # ANALYTICS
     # ========================================================================
     

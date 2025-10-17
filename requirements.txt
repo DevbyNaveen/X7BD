@@ -1,3 +1,6 @@
+# QR Code Generation
+qrcode[pil]==7.4.2
+
 # Core Framework
 fastapi==0.115.0
 uvicorn[standard]==0.32.0

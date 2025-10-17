@@ -22,16 +22,24 @@ load_dotenv()
 # Import routers
 from .routes import (
     menu, inventory, operations, analytics, websocket, business_settings, auth,
-    service_based, retail, professional, universal_analytics, reviews
+    service_based, retail, professional, universal_analytics, reviews, food
 )
 
 # Import DevOps client
 import sys
 import os
-# Add shared directory to path
-shared_path = os.path.join(os.path.dirname(__file__), '../../../shared')
-sys.path.append(shared_path)
-from libs.devops_client import get_devops_client, IncidentSeverity
+# Add libs directory to path
+libs_path = os.path.join(os.path.dirname(__file__), '../../libs')
+sys.path.append(libs_path)
+try:
+    from devops_client import get_devops_client, IncidentSeverity
+except ImportError:
+    # Create a mock devops client if not available
+    class MockDevOpsClient:
+        def configure(self, service_name): pass
+        async def report_incident(self, title, description, severity): pass
+    get_devops_client = lambda: MockDevOpsClient()
+    IncidentSeverity = type('IncidentSeverity', (), {'HIGH': 'high'})()
 
 # Configuration
 SERVICE_NAME = "analytics-dashboard-service"
@@ -40,12 +48,12 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
-    'analytics_requests_total',
+    'x7bd_food_qr_requests_total',
     'Total requests',
     ['method', 'endpoint', 'status']
 )
 PDF_UPLOADS = Counter(
-    'analytics_pdf_uploads_total',
+    'x7bd_food_qr_pdf_uploads_total',
     'Total PDF uploads',
     ['status']
 )
@@ -110,6 +118,7 @@ app.include_router(auth.router)  # Auth routes (must be first)
 app.include_router(menu.router)
 app.include_router(inventory.router)
 app.include_router(operations.router)
+app.include_router(food.router)  # Food QR Management
 
 # Service-Based Template (NEW)
 app.include_router(service_based.router)
