@@ -187,8 +187,14 @@ async def get_top_menu_items(
         item_performance_result = db.client.table("item_performance").select("*").eq("business_id", str(business_id)).gte("date", start_date.date().isoformat()).execute()
         item_performance = item_performance_result.data if item_performance_result.data else []
         
-        # Create performance lookup by item_id
+        # Get actual order data for real revenue calculation
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Create performance lookup by item_id from both sources
         performance_lookup = {}
+        
+        # First, populate from item_performance table
         for perf in item_performance:
             item_id = perf.get("menu_item_id")
             if item_id:
@@ -203,6 +209,32 @@ async def get_top_menu_items(
                 performance_lookup[item_id]["total_quantity"] += perf.get("quantity_sold", 0)
                 performance_lookup[item_id]["total_revenue"] += perf.get("revenue", 0.0)
                 performance_lookup[item_id]["total_cost"] += perf.get("cost", 0.0)
+        
+        # Then, populate/override with actual order data if available
+        # Orders have items stored as JSONB column
+        for order in orders:
+            items = order.get("items", [])
+            if isinstance(items, list):
+                for item in items:
+                    item_id = item.get("menu_item_id") or item.get("id")
+                    if item_id:
+                        if item_id not in performance_lookup:
+                            performance_lookup[item_id] = {
+                                "sales_count": 0,
+                                "total_quantity": 0,
+                                "total_revenue": 0.0,
+                                "total_cost": 0.0
+                            }
+                        
+                        quantity = item.get("quantity", 0)
+                        price = item.get("price", 0)
+                        cost = item.get("cost", 0)
+                        
+                        # Accumulate order data
+                        performance_lookup[item_id]["sales_count"] += quantity
+                        performance_lookup[item_id]["total_quantity"] += quantity
+                        performance_lookup[item_id]["total_revenue"] += quantity * price
+                        performance_lookup[item_id]["total_cost"] += quantity * cost
         
         # Process items with real analytics data
         top_items = []
@@ -319,6 +351,12 @@ async def get_category_performance(
         item_performance_result = db.client.table("item_performance").select("*").eq("business_id", str(business_id)).gte("date", start_date.date().isoformat()).execute()
         item_performance = item_performance_result.data if item_performance_result.data else []
         
+        # Get actual order data for real revenue calculation
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Note: Orders have items stored as JSONB column, not separate order_items table
+        
         # Group items by category
         items_by_category = {}
         for item in menu_items:
@@ -345,13 +383,44 @@ async def get_category_performance(
             avg_profit_margin = avg_price - avg_cost
             profit_margin_percentage = (avg_profit_margin / avg_price * 100) if avg_price > 0 else 0
             
-            # Calculate real sales data from item_performance
+            # Calculate real sales data from item_performance (if available)
             category_items = [item["id"] for item in items]
             category_performance_data = [perf for perf in item_performance if perf.get("menu_item_id") in category_items]
             
-            total_sales = sum(perf.get("quantity_sold", 0) for perf in category_performance_data)
-            total_revenue = sum(perf.get("revenue", 0.0) for perf in category_performance_data)
-            total_profit = sum(perf.get("profit", 0.0) for perf in category_performance_data)
+            # Calculate revenue from actual orders (items stored as JSONB)
+            order_sales = 0
+            order_revenue = 0.0
+            order_cost = 0.0
+            
+            for order in orders:
+                items = order.get("items", [])
+                if isinstance(items, list):
+                    for item in items:
+                        item_id = item.get("menu_item_id") or item.get("id")
+                        if item_id in category_items:
+                            quantity = item.get("quantity", 0)
+                            price = item.get("price", 0)
+                            cost = item.get("cost", 0)
+                            
+                            order_sales += quantity
+                            order_revenue += quantity * price
+                            order_cost += quantity * cost
+            
+            # Calculate metrics from both sources
+            # From item_performance table
+            perf_sales = sum(perf.get("quantity_sold", 0) for perf in category_performance_data)
+            perf_revenue = sum(perf.get("revenue", 0.0) for perf in category_performance_data)
+            perf_profit = sum(perf.get("profit", 0.0) for perf in category_performance_data)
+            
+            # Use order data if available, otherwise fall back to performance data
+            if order_sales > 0:
+                total_sales = order_sales
+                total_revenue = order_revenue
+                total_profit = order_revenue - order_cost
+            else:
+                total_sales = perf_sales
+                total_revenue = perf_revenue
+                total_profit = perf_profit
             
             # Calculate performance score
             performance_score = min(100, (
