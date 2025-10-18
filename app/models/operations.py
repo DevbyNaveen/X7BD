@@ -5,7 +5,7 @@ Enterprise-grade data models for tables, floor plans, and kitchen operations
 
 from pydantic import BaseModel, Field, validator, field_validator
 from typing import Optional, List, Dict, Any, Union
-from datetime import datetime, time
+from datetime import datetime, time, timezone
 from decimal import Decimal
 from uuid import UUID
 from enum import Enum
@@ -210,6 +210,7 @@ class KDSOrderBase(BaseModel):
 class KDSOrderCreate(KDSOrderBase):
     """Create KDS order"""
     business_id: UUID
+    customer_id: Optional[UUID] = None  # Optional - NULL for staff orders, populated for customer orders
 
 
 class KDSOrderUpdate(BaseModel):
@@ -252,7 +253,19 @@ class KDSOrderWithMetrics(KDSOrder):
     @validator('is_late', always=True)
     def check_if_late(cls, v, values):
         if 'target_time' in values and values['target_time']:
-            return datetime.utcnow() > values['target_time']
+            target_time = values['target_time']
+            current_time = datetime.utcnow()
+            
+            # Ensure both datetimes are timezone-aware for comparison
+            if target_time.tzinfo is None:
+                # If target_time is naive, assume it's UTC
+                target_time = target_time.replace(tzinfo=timezone.utc)
+            
+            if current_time.tzinfo is None:
+                # If current_time is naive, make it timezone-aware (UTC)
+                current_time = current_time.replace(tzinfo=timezone.utc)
+            
+            return current_time > target_time
         return False
 
 

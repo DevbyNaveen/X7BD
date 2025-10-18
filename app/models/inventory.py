@@ -234,8 +234,8 @@ class PurchaseOrderItem(BaseModel):
     """Purchase order item"""
     inventory_item_id: UUID
     quantity: Decimal = Field(..., gt=0)
-    unit_cost: Decimal = Field(..., ge=0, )
-    total: Decimal = Field(..., ge=0, )
+    unit_cost: Decimal = Field(..., ge=0)
+    total: Decimal = Field(..., ge=0)
 
 
 class PurchaseOrderBase(BaseModel):

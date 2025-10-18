@@ -233,3 +233,5 @@ FROM menu_items
 WHERE business_id = 'fd8a3d59-4a06-43c2-9820-0e3222867117'
 ORDER BY name
 LIMIT 10;
+
+

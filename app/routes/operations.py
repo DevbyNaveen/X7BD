@@ -428,6 +428,51 @@ async def check_table_availability(
         raise HTTPException(status_code=500, detail=f"Failed to check availability: {str(e)}")
 
 
+@router.put("/orders/{order_id}/status", response_model=dict)
+async def update_order_status(
+    order_id: UUID,
+    status: str = Query(..., pattern=r"^(pending|active|preparing|ready|completed|cancelled)$")
+):
+    """
+    Update order status
+    
+    - **Status Updates**: Change order status (pending, active, preparing, ready, completed, cancelled)
+    - **Analytics Integration**: Automatically populates item_performance when completed
+    - **Real-time Updates**: Publishes status change events
+    """
+    try:
+        db = get_database_service()
+        
+        # Update order status
+        result = await db.update_order_status(order_id, status)
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="Order not found")
+        
+        # Publish real-time update
+        await RealtimeEventPublisher.publish_order_update(
+            result["business_id"],
+            {
+                "type": "order_status_updated",
+                "order_id": str(order_id),
+                "status": status,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        
+        return {
+            "success": True,
+            "order_id": str(order_id),
+            "status": status,
+            "updated_at": result["updated_at"]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update order status: {str(e)}")
+
+
 # ============================================================================
 # KITCHEN DISPLAY SYSTEM (KDS)
 # ============================================================================
@@ -461,12 +506,30 @@ async def create_kds_order(kds_order: KDSOrderCreate):
         data["business_id"] = str(data["business_id"])
         data["order_id"] = str(data["order_id"])
         
-        # Convert UUID fields in items
+        # Convert datetime fields to strings for JSON serialization
+        if "target_time" in data and data["target_time"]:
+            data["target_time"] = data["target_time"].isoformat()
+            logger.info(f"🕐 Converted target_time to ISO string: {data['target_time']}")
+        
+        # Convert any other datetime fields that might exist
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+                logger.info(f"🕐 Converted {key} datetime to ISO string: {data[key]}")
+        
+        # Convert UUID fields in items and handle any datetime fields
         if "items" in data and data["items"]:
             logger.info(f"🔍 Order items: {len(data['items'])} items")
             for i, item in enumerate(data["items"]):
                 if "menu_item_id" in item:
                     item["menu_item_id"] = str(item["menu_item_id"])
+                
+                # Convert any datetime fields in items
+                for key, value in item.items():
+                    if isinstance(value, datetime):
+                        item[key] = value.isoformat()
+                        logger.info(f"🕐 Converted item {i+1} {key} datetime to ISO string: {item[key]}")
+                
                 logger.info(f"   Item {i+1}: {item}")
         else:
             logger.warning("⚠️ No items found in order data")
@@ -484,80 +547,60 @@ async def create_kds_order(kds_order: KDSOrderCreate):
             if not order_exists:
                 logger.info("📝 Order doesn't exist, creating new order...")
                 
-                # Create a system user for KDS orders
-                # Use a consistent system user email to avoid duplicates
-                system_email = "kds-system@internal.local"
-                system_user_id = None
+                # Handle customer_id - NULL for staff orders, populated for customer orders
+                customer_id = None
+                if hasattr(kds_order, 'customer_id') and kds_order.customer_id:
+                    customer_id = str(kds_order.customer_id)
+                    logger.info(f"✅ Using customer ID from KDS order: {customer_id}")
+                else:
+                    logger.info("🔍 No customer ID provided - creating staff/internal order with customer_id = NULL")
                 
-                try:
-                    from app.middleware.auth import get_supabase_client
-                    supabase = get_supabase_client(use_service_key=True)
-                    
-                    # First, try to find existing system user
-                    try:
-                        existing_users = supabase.table("users").select("id").eq("full_name", "KDS System User").execute()
-                        if existing_users.data:
-                            system_user_id = existing_users.data[0]["id"]
-                            logger.info(f"✅ Found existing system user: {system_user_id}")
-                        else:
-                            logger.info("🔍 No existing system user found, creating new one")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Error checking for existing system user: {str(e)}")
-                    
-                    # If no existing user found, create one
-                    if not system_user_id:
-                        # Create auth user
-                        auth_response = supabase.auth.admin.create_user({
-                            "email": system_email,
-                            "password": "SystemUser123!",
-                            "email_confirm": True,
-                            "user_metadata": {
-                                "full_name": "KDS System User"
-                            }
-                        })
-                        
-                        if auth_response.user:
-                            system_user_id = auth_response.user.id
-                            logger.info(f"✅ System user created in auth: {system_user_id}")
-                            
-                            # Create user profile in users table
-                            user_profile = {
-                                "id": system_user_id,
-                                "full_name": "KDS System User"
-                            }
-                            supabase.table("users").insert(user_profile).execute()
-                            logger.info(f"✅ System user profile created: {system_user_id}")
-                        else:
-                            raise Exception("Failed to create auth user")
-                            
-                except Exception as auth_error:
-                    logger.error(f"💥 CRITICAL: System user creation failed: {str(auth_error)}")
-                    # Try to use any existing user as fallback
-                    try:
-                        fallback_users = supabase.table("users").select("id").limit(1).execute()
-                        if fallback_users.data:
-                            system_user_id = fallback_users.data[0]["id"]
-                            logger.warning(f"⚠️ Using fallback user: {system_user_id}")
-                        else:
-                            raise Exception("No users available for fallback")
-                    except Exception as fallback_error:
-                        logger.error(f"💥 CRITICAL: No fallback user available: {str(fallback_error)}")
-                        raise HTTPException(status_code=500, detail=f"Failed to create or find system user: {str(auth_error)}")
+                # Calculate total amount from KDS order items
+                total_amount = 0.0
+                order_items = []
+                if kds_order.items:
+                    for item in kds_order.items:
+                        # Get menu item details to calculate price
+                        try:
+                            menu_item_result = db.client.table("menu_items").select("price, cost").eq("id", str(item.menu_item_id)).execute()
+                            if menu_item_result.data:
+                                menu_item = menu_item_result.data[0]
+                                price = float(menu_item.get("price", 0))
+                                cost = float(menu_item.get("cost", 0)) if menu_item.get("cost") else price * 0.3
+                                item_total = price * item.quantity
+                                total_amount += item_total
+                                
+                                order_items.append({
+                                    "menu_item_id": str(item.menu_item_id),
+                                    "name": item.name,
+                                    "quantity": item.quantity,
+                                    "price": price,
+                                    "cost": cost,
+                                    "modifiers": item.modifiers,
+                                    "special_instructions": item.special_instructions
+                                })
+                        except Exception as item_error:
+                            logger.warning(f"⚠️ Could not get menu item details for {item.menu_item_id}: {str(item_error)}")
+                            # Use default values if menu item not found
+                            order_items.append({
+                                "menu_item_id": str(item.menu_item_id),
+                                "name": item.name,
+                                "quantity": item.quantity,
+                                "price": 0.0,
+                                "cost": 0.0,
+                                "modifiers": item.modifiers,
+                                "special_instructions": item.special_instructions
+                            })
                 
-                if not system_user_id:
-                    raise HTTPException(status_code=500, detail="System user ID not available")
-                
-                # Create the order with system user as customer
-                logger.info(f"🔍 Using system user ID: {system_user_id}")
                 order_data = {
                     "id": str(kds_order.order_id),
                     "business_id": str(kds_order.business_id),
-                    "customer_id": system_user_id,  # Use system user
+                    "customer_id": customer_id,  # NULL for staff orders, populated for customer orders
                     "status": "active",
                     "created_at": datetime.utcnow().isoformat(),
-                    "total_amount": 0.0,
+                    "total_amount": total_amount,
                     "order_number": f"KDS-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{str(kds_order.order_id)[:8]}",
-                    "items": []  # Empty items array to satisfy NOT NULL constraint
+                    "items": order_items  # Populate with actual items from KDS order
                 }
                 logger.info(f"📦 Order data to insert: {order_data}")
                 order_result = await db.create_order(order_data)

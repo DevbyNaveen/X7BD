@@ -10,7 +10,7 @@ ENTERPRISE STRUCTURE:
 from fastapi import APIRouter, HTTPException, Depends, Query, status, BackgroundTasks
 from typing import List, Optional
 from uuid import UUID
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 from ..services.database import DatabaseService, get_database_service
 
@@ -584,7 +584,7 @@ async def delete_supplier(supplier_id: UUID):
 # ============================================================================
 
 @router.post("/purchase-orders", response_model=PurchaseOrder, status_code=status.HTTP_201_CREATED)
-async def create_purchase_order(po: PurchaseOrderCreate, created_by: str = Query(default=""), db: DatabaseService = Depends(get_database_service)):
+async def create_purchase_order(po: PurchaseOrderCreate, created_by: Optional[UUID] = Query(None, description="User ID of the person creating the purchase order"), db: DatabaseService = Depends(get_database_service)):
     """
     Create purchase order
     
@@ -603,7 +603,15 @@ async def create_purchase_order(po: PurchaseOrderCreate, created_by: str = Query
         if po_data.get("order_date"):
             po_data["order_date"] = po_data["order_date"].isoformat()
         if po_data.get("expected_delivery_date"):
-            po_data["expected_delivery_date"] = po_data["expected_delivery_date"].isoformat()
+            # Validate the date is reasonable (not in the past or too far future)
+            delivery_date = po_data["expected_delivery_date"]
+            if delivery_date.year < 2020 or delivery_date.year > 2030:
+                print(f"⚠️ WARNING: Invalid delivery date year: {delivery_date.year}")
+                # Set to a reasonable default (30 days from now)
+                from datetime import timedelta
+                po_data["expected_delivery_date"] = (datetime.utcnow() + timedelta(days=30)).isoformat()
+            else:
+                po_data["expected_delivery_date"] = delivery_date.isoformat()
         
         # Convert items UUIDs and Decimals
         for item in po_data["items"]:
@@ -614,18 +622,9 @@ async def create_purchase_order(po: PurchaseOrderCreate, created_by: str = Query
         
         po_data["order_number"] = f"PO-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{str(po.business_id)[:8]}"
         po_data["status"] = "pending"
-        # Handle created_by parameter - validate UUID format but don't enforce foreign key
-        if created_by and created_by.strip():
-            try:
-                from uuid import UUID
-                UUID(created_by)  # Validate UUID format
-                # Don't set created_by to avoid foreign key constraint issues
-                # po_data["created_by"] = created_by
-                po_data["created_by"] = None
-            except ValueError:
-                po_data["created_by"] = None
-        else:
-            po_data["created_by"] = None
+        # Set created_by to None to avoid foreign key constraint issues
+        # In production, user validation should be handled at the authentication layer
+        po_data["created_by"] = None
         po_data["created_at"] = datetime.utcnow().isoformat()
         po_data["updated_at"] = datetime.utcnow().isoformat()
         
@@ -633,10 +632,31 @@ async def create_purchase_order(po: PurchaseOrderCreate, created_by: str = Query
         total_amount = sum(item["quantity"] * item["unit_cost"] for item in po_data["items"])
         po_data["total_amount"] = total_amount
         
+        # Validate required fields
+        if not po_data.get("business_id"):
+            raise HTTPException(status_code=400, detail="business_id is required")
+        if not po_data.get("supplier_id"):
+            raise HTTPException(status_code=400, detail="supplier_id is required")
+        if not po_data.get("items") or len(po_data["items"]) == 0:
+            raise HTTPException(status_code=400, detail="At least one item is required")
+        
+        # Validate each item has required fields
+        for i, item in enumerate(po_data["items"]):
+            if not item.get("inventory_item_id"):
+                raise HTTPException(status_code=400, detail=f"Item {i+1}: inventory_item_id is required")
+            if not item.get("quantity") or item["quantity"] <= 0:
+                raise HTTPException(status_code=400, detail=f"Item {i+1}: quantity must be greater than 0")
+            if not item.get("unit_cost") or item["unit_cost"] < 0:
+                raise HTTPException(status_code=400, detail=f"Item {i+1}: unit_cost must be non-negative")
+        
         result = db.client.table("purchase_orders").insert(po_data).execute()
-        return result.data[0] if result.data else None
+        
+        if not result.data:
+            raise HTTPException(status_code=500, detail="Failed to create purchase order - no data returned")
+        
+        return result.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create purchase order: {str(e)}")
 
 
 @router.get("/purchase-orders", response_model=List[PurchaseOrder])

@@ -312,13 +312,16 @@ class DatabaseService:
         if "assigned_to" in data and data["assigned_to"]:
             data["assigned_to"] = str(data["assigned_to"])
         
+        # Remove customer_id from KDS order data as it belongs to orders table, not kds_orders
+        kds_data = {k: v for k, v in data.items() if k != "customer_id"}
+        
         # Convert UUID fields in items
-        if "items" in data and data["items"]:
-            for item in data["items"]:
+        if "items" in kds_data and kds_data["items"]:
+            for item in kds_data["items"]:
                 if "menu_item_id" in item:
                     item["menu_item_id"] = str(item["menu_item_id"])
         
-        result = self.client.table("kds_orders").insert(data).execute()
+        result = self.client.table("kds_orders").insert(kds_data).execute()
         return result.data[0] if result.data else None
     
     async def get_active_kds_orders(
@@ -372,6 +375,94 @@ class DatabaseService:
         
         result = self.client.table("kds_orders").update(updates).eq("id", str(order_id)).execute()
         return result.data[0] if result.data else None
+    
+    async def update_order_status(
+        self,
+        order_id: UUID,
+        status: str,
+        completed_at: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """Update order status and populate item_performance if completed"""
+        updates = {
+            "status": status,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
+        if completed_at:
+            updates["completed_at"] = completed_at.isoformat()
+        elif status == "completed":
+            updates["completed_at"] = datetime.utcnow().isoformat()
+        
+        # Update the order
+        result = self.client.table("orders").update(updates).eq("id", str(order_id)).execute()
+        
+        # If order is completed, populate item_performance table
+        if status == "completed" and result.data:
+            order = result.data[0]
+            await self._populate_item_performance(order)
+        
+        return result.data[0] if result.data else None
+    
+    async def _populate_item_performance(self, order: Dict[str, Any]):
+        """Populate item_performance table when order is completed"""
+        try:
+            items = order.get("items", [])
+            if not items:
+                return
+            
+            business_id = order["business_id"]
+            order_date = datetime.fromisoformat(order["created_at"].replace('Z', '+00:00')).date()
+            
+            # Group items by menu_item_id and sum quantities
+            item_totals = {}
+            for item in items:
+                menu_item_id = item.get("menu_item_id")
+                if not menu_item_id:
+                    continue
+                
+                quantity = item.get("quantity", 0)
+                price = item.get("price", 0)
+                cost = item.get("cost", 0)
+                
+                if menu_item_id not in item_totals:
+                    item_totals[menu_item_id] = {
+                        "quantity": 0,
+                        "revenue": 0.0,
+                        "cost": 0.0
+                    }
+                
+                item_totals[menu_item_id]["quantity"] += quantity
+                item_totals[menu_item_id]["revenue"] += quantity * price
+                item_totals[menu_item_id]["cost"] += quantity * cost
+            
+            # Insert or update item_performance records
+            for menu_item_id, totals in item_totals.items():
+                # Check if record exists for this date
+                existing = self.client.table("item_performance").select("*").eq("business_id", business_id).eq("menu_item_id", menu_item_id).eq("date", order_date.isoformat()).execute()
+                
+                if existing.data:
+                    # Update existing record
+                    self.client.table("item_performance").update({
+                        "quantity_sold": existing.data[0]["quantity_sold"] + totals["quantity"],
+                        "revenue": existing.data[0]["revenue"] + totals["revenue"],
+                        "cost": existing.data[0]["cost"] + totals["cost"],
+                        "profit": (existing.data[0]["revenue"] + totals["revenue"]) - (existing.data[0]["cost"] + totals["cost"])
+                    }).eq("id", existing.data[0]["id"]).execute()
+                else:
+                    # Create new record
+                    self.client.table("item_performance").insert({
+                        "business_id": business_id,
+                        "menu_item_id": menu_item_id,
+                        "date": order_date.isoformat(),
+                        "quantity_sold": totals["quantity"],
+                        "revenue": totals["revenue"],
+                        "cost": totals["cost"],
+                        "profit": totals["revenue"] - totals["cost"]
+                    }).execute()
+                    
+        except Exception as e:
+            print(f"⚠️ Error populating item_performance: {str(e)}")
+            # Don't fail the order update if item_performance fails
     
     # ========================================================================
     # STAFF OPERATIONS

@@ -758,12 +758,15 @@ async def get_orders_overview(
         else:
             start_date = end_date - timedelta(days=7)
         
-        # Get orders data with retry logic
+        # Get orders data with retry logic - use more efficient query
         orders = []
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+                # Only select necessary fields for better performance
+                orders_result = db.client.table("orders").select(
+                    "id, status, total_amount, created_at"
+                ).eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
                 orders = orders_result.data if orders_result.data else []
                 break
             except Exception as e:
@@ -1206,7 +1209,53 @@ async def get_top_selling_items(
         else:
             start_date = end_date - timedelta(days=7)
         
-        # Get orders data
+        # Use item_performance table for better performance
+        try:
+            # Query item_performance table directly
+            item_performance_result = db.client.table("item_performance").select(
+                "menu_item_id, quantity_sold, revenue, profit, menu_items(name)"
+            ).eq("business_id", str(business_id)).gte("date", start_date.date().isoformat()).execute()
+            
+            if item_performance_result.data:
+                # Aggregate by menu_item_id
+                item_totals = {}
+                for perf in item_performance_result.data:
+                    menu_item_id = perf["menu_item_id"]
+                    menu_item_name = perf["menu_items"]["name"] if perf["menu_items"] else "Unknown Item"
+                    
+                    if menu_item_id not in item_totals:
+                        item_totals[menu_item_id] = {
+                            "name": menu_item_name,
+                            "quantity": 0,
+                            "revenue": 0.0
+                        }
+                    
+                    item_totals[menu_item_id]["quantity"] += perf["quantity_sold"]
+                    item_totals[menu_item_id]["revenue"] += perf["revenue"]
+                
+                # Convert to top items list and sort by quantity
+                top_items = []
+                for item_id, data in item_totals.items():
+                    top_items.append(TopSellingItem(
+                        name=data["name"],
+                        quantity=data["quantity"],
+                        revenue=round(data["revenue"], 2)
+                    ))
+                
+                # Sort by quantity and limit results
+                top_items.sort(key=lambda x: x.quantity, reverse=True)
+                top_items = top_items[:limit]
+                
+                return TopSellingItemsResponse(
+                    business_id=str(business_id),
+                    period=period,
+                    top_items=top_items,
+                    generated_at=datetime.utcnow()
+                )
+        except Exception as sql_error:
+            print(f"⚠️ item_performance query failed, falling back to orders aggregation: {str(sql_error)}")
+        
+        # Fallback to Python-based aggregation using orders JSONB
         orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
         orders = orders_result.data if orders_result.data else []
         
