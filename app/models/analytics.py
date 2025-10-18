@@ -195,6 +195,116 @@ class AnalyticsExportResponse(BaseModel):
 
 
 # ============================================================================
+# ORDERS ANALYTICS MODELS
+# ============================================================================
+
+class OrdersOverview(BaseModel):
+    """Orders analytics overview with key metrics"""
+    business_id: str
+    period: str
+    total_orders: int
+    completed_orders: int
+    pending_orders: int
+    cancelled_orders: int
+    total_revenue: float
+    average_order_value: float
+    orders_growth: float
+    revenue_growth: float
+    completion_rate: float
+    cancellation_rate: float
+    last_updated: datetime
+
+
+class OrderTrendData(BaseModel):
+    """Daily order trend data"""
+    day: str
+    orders: int
+    revenue: float
+
+
+class OrderHourData(BaseModel):
+    """Hourly order data"""
+    hour: str
+    orders: int
+
+
+class OrderStatusData(BaseModel):
+    """Order status distribution data"""
+    status: str
+    count: int
+    percentage: float
+
+
+class OrderTypeData(BaseModel):
+    """Order type distribution data"""
+    type: str
+    count: int
+    percentage: float
+
+
+class TopSellingItem(BaseModel):
+    """Top selling menu item"""
+    name: str
+    quantity: int
+    revenue: float
+
+
+class OrdersTrendResponse(BaseModel):
+    """Response model for orders trend analytics"""
+    business_id: str
+    period: str
+    trend_data: List[OrderTrendData]
+    generated_at: datetime
+
+
+class OrdersByHourResponse(BaseModel):
+    """Response model for orders by hour analytics"""
+    business_id: str
+    period: str
+    hour_data: List[OrderHourData]
+    peak_hour: str
+    generated_at: datetime
+
+
+class OrderStatusDistributionResponse(BaseModel):
+    """Response model for order status distribution"""
+    business_id: str
+    period: str
+    status_data: List[OrderStatusData]
+    generated_at: datetime
+
+
+class OrderTypesResponse(BaseModel):
+    """Response model for order types distribution"""
+    business_id: str
+    period: str
+    type_data: List[OrderTypeData]
+    generated_at: datetime
+
+
+class TopSellingItemsResponse(BaseModel):
+    """Response model for top selling items"""
+    business_id: str
+    period: str
+    top_items: List[TopSellingItem]
+    generated_at: datetime
+
+
+class OrdersAnalyticsResponse(BaseModel):
+    """Comprehensive orders analytics dashboard response"""
+    business_id: str
+    period: str
+    overview: OrdersOverview
+    trend_data: OrdersTrendResponse
+    status_distribution: OrderStatusDistributionResponse
+    hour_data: OrdersByHourResponse
+    order_types: OrderTypesResponse
+    top_items: TopSellingItemsResponse
+    generated_at: datetime
+    cache_expires_at: datetime
+
+
+# ============================================================================
 # REAL-TIME ANALYTICS MODELS
 # ============================================================================
 

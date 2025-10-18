@@ -18,7 +18,12 @@ import json
 from ..models.analytics import (
     MenuAnalyticsOverview, MenuItemPerformance, CategoryPerformance,
     ProfitMarginAnalysis, MenuAnalyticsResponse, TopMenuItemsResponse,
-    CategoryPerformanceResponse, ProfitMarginResponse
+    CategoryPerformanceResponse, ProfitMarginResponse,
+    # Orders Analytics Models
+    OrdersOverview, OrderTrendData, OrderHourData, OrderStatusData,
+    OrderTypeData, TopSellingItem, OrdersTrendResponse, OrdersByHourResponse,
+    OrderStatusDistributionResponse, OrderTypesResponse, TopSellingItemsResponse,
+    OrdersAnalyticsResponse
 )
 from ..services.database import get_database_service
 from ..services.realtime import RealtimeEventPublisher
@@ -718,3 +723,577 @@ async def refresh_menu_analytics(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to refresh analytics: {str(e)}")
+
+
+# ============================================================================
+# ORDERS ANALYTICS ENDPOINTS
+# ============================================================================
+
+@router.get("/orders/overview/{business_id}", response_model=OrdersOverview)
+async def get_orders_overview(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get comprehensive orders analytics overview
+    
+    - **Key Metrics**: Total orders, completed, pending, cancelled counts
+    - **Revenue Metrics**: Total revenue, average order value
+    - **Growth Trends**: Period-over-period growth calculations
+    - **Performance Rates**: Completion and cancellation rates
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data with retry logic
+        orders = []
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+                orders = orders_result.data if orders_result.data else []
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                import time
+                time.sleep(0.5)  # Wait 500ms before retry
+        
+        # Calculate basic metrics
+        total_orders = len(orders)
+        completed_orders = len([o for o in orders if o.get("status") == "completed"])
+        pending_orders = len([o for o in orders if o.get("status") in ["pending", "active", "preparing"]])
+        cancelled_orders = len([o for o in orders if o.get("status") == "cancelled"])
+        
+        # Calculate revenue metrics
+        total_revenue = sum(float(o.get("total_amount", 0)) for o in orders)
+        average_order_value = total_revenue / total_orders if total_orders > 0 else 0
+        
+        # Calculate rates
+        completion_rate = (completed_orders / total_orders * 100) if total_orders > 0 else 0
+        cancellation_rate = (cancelled_orders / total_orders * 100) if total_orders > 0 else 0
+        
+        # Calculate real growth rates by comparing with previous period
+        previous_start_date = start_date - (end_date - start_date)
+        previous_orders = []
+        for attempt in range(max_retries):
+            try:
+                previous_orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", previous_start_date.isoformat()).lt("created_at", start_date.isoformat()).execute()
+                previous_orders = previous_orders_result.data if previous_orders_result.data else []
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                import time
+                time.sleep(0.5)  # Wait 500ms before retry
+        
+        previous_total_orders = len(previous_orders)
+        previous_total_revenue = sum(float(o.get("total_amount", 0)) for o in previous_orders)
+        
+        # Calculate growth percentages
+        if previous_total_orders > 0:
+            orders_growth = ((total_orders - previous_total_orders) / previous_total_orders * 100)
+        else:
+            orders_growth = 100.0 if total_orders > 0 else 0.0
+            
+        if previous_total_revenue > 0:
+            revenue_growth = ((total_revenue - previous_total_revenue) / previous_total_revenue * 100)
+        else:
+            revenue_growth = 100.0 if total_revenue > 0 else 0.0
+        
+        return OrdersOverview(
+            business_id=str(business_id),
+            period=period,
+            total_orders=total_orders,
+            completed_orders=completed_orders,
+            pending_orders=pending_orders,
+            cancelled_orders=cancelled_orders,
+            total_revenue=round(total_revenue, 2),
+            average_order_value=round(average_order_value, 2),
+            orders_growth=round(orders_growth, 1),
+            revenue_growth=round(revenue_growth, 1),
+            completion_rate=round(completion_rate, 1),
+            cancellation_rate=round(cancellation_rate, 1),
+            last_updated=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get orders overview: {str(e)}")
+
+
+@router.get("/orders/trend/{business_id}", response_model=OrdersTrendResponse)
+async def get_orders_trend(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get daily orders trend data for charts
+    
+    - **Daily Volume**: Orders and revenue by day
+    - **Chart Data**: Formatted for line/bar charts
+    - **Time Period**: Configurable date ranges
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Group orders by day
+        daily_data = {}
+        for order in orders:
+            try:
+                # Handle different datetime formats from Supabase
+                created_at = order["created_at"]
+                
+                # Normalize the datetime string
+                if created_at.endswith('Z'):
+                    created_at = created_at[:-1] + '+00:00'
+                
+                # Fix microseconds format (ensure 6 digits)
+                if '.' in created_at and '+' in created_at:
+                    # Split by timezone
+                    dt_part, tz_part = created_at.rsplit('+', 1)
+                    if '.' in dt_part:
+                        date_part, micro_part = dt_part.split('.')
+                        # Pad microseconds to 6 digits
+                        micro_part = micro_part.ljust(6, '0')[:6]
+                        created_at = f"{date_part}.{micro_part}+{tz_part}"
+                
+                # Parse the datetime
+                order_date = datetime.fromisoformat(created_at).date()
+                day_key = order_date.isoformat()
+                
+                if day_key not in daily_data:
+                    daily_data[day_key] = {"orders": 0, "revenue": 0.0}
+                
+                daily_data[day_key]["orders"] += 1
+                daily_data[day_key]["revenue"] += float(order.get("total_amount", 0))
+                
+            except ValueError as e:
+                # Skip orders with invalid datetime formats
+                print(f"Warning: Skipping order with invalid datetime format: {order.get('created_at')} - {e}")
+                continue
+        
+        # Generate trend data with day names
+        trend_data = []
+        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        
+        for i in range(7):  # Last 7 days
+            date = (end_date - timedelta(days=i)).date()
+            day_key = date.isoformat()
+            day_name = days[date.weekday()]
+            
+            orders_count = daily_data.get(day_key, {}).get("orders", 0)
+            revenue = daily_data.get(day_key, {}).get("revenue", 0.0)
+            
+            trend_data.append(OrderTrendData(
+                day=day_name,
+                orders=orders_count,
+                revenue=round(revenue, 2)
+            ))
+        
+        # Reverse to get chronological order
+        trend_data.reverse()
+        
+        return OrdersTrendResponse(
+            business_id=str(business_id),
+            period=period,
+            trend_data=trend_data,
+            generated_at=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get orders trend: {str(e)}")
+
+
+@router.get("/orders/by-hour/{business_id}", response_model=OrdersByHourResponse)
+async def get_orders_by_hour(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get orders by hour for peak time analysis
+    
+    - **Hourly Distribution**: Orders by hour of day
+    - **Peak Hours**: Identify busiest times
+    - **Chart Data**: Formatted for bar charts
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Group orders by hour
+        hourly_data = {}
+        for order in orders:
+            try:
+                # Handle different datetime formats from Supabase
+                created_at = order["created_at"]
+                
+                # Normalize the datetime string
+                if created_at.endswith('Z'):
+                    created_at = created_at[:-1] + '+00:00'
+                
+                # Fix microseconds format (ensure 6 digits)
+                if '.' in created_at and '+' in created_at:
+                    # Split by timezone
+                    dt_part, tz_part = created_at.rsplit('+', 1)
+                    if '.' in dt_part:
+                        date_part, micro_part = dt_part.split('.')
+                        # Pad microseconds to 6 digits
+                        micro_part = micro_part.ljust(6, '0')[:6]
+                        created_at = f"{date_part}.{micro_part}+{tz_part}"
+                
+                # Parse the datetime
+                order_time = datetime.fromisoformat(created_at)
+                hour = order_time.hour
+                
+                if hour not in hourly_data:
+                    hourly_data[hour] = 0
+                hourly_data[hour] += 1
+                
+            except ValueError as e:
+                # Skip orders with invalid datetime formats
+                print(f"Warning: Skipping order with invalid datetime format: {order.get('created_at')} - {e}")
+                continue
+        
+        # Generate hour data with formatted labels
+        hour_labels = {
+            6: "6AM", 9: "9AM", 12: "12PM", 15: "3PM", 18: "6PM", 21: "9PM"
+        }
+        
+        hour_data = []
+        peak_hour_count = 0
+        peak_hour_label = "6PM"
+        
+        for hour, label in hour_labels.items():
+            count = hourly_data.get(hour, 0)
+            hour_data.append(OrderHourData(hour=label, orders=count))
+            
+            if count > peak_hour_count:
+                peak_hour_count = count
+                peak_hour_label = label
+        
+        return OrdersByHourResponse(
+            business_id=str(business_id),
+            period=period,
+            hour_data=hour_data,
+            peak_hour=peak_hour_label,
+            generated_at=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get orders by hour: {str(e)}")
+
+
+@router.get("/orders/status-distribution/{business_id}", response_model=OrderStatusDistributionResponse)
+async def get_order_status_distribution(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get order status distribution for pie charts
+    
+    - **Status Breakdown**: Completed, Pending, Cancelled
+    - **Percentages**: Calculated distribution
+    - **Chart Data**: Formatted for pie charts
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Count orders by status
+        status_counts = {}
+        for order in orders:
+            status = order.get("status", "pending")
+            if status not in status_counts:
+                status_counts[status] = 0
+            status_counts[status] += 1
+        
+        # Normalize status names and calculate percentages
+        total_orders = len(orders)
+        status_data = []
+        
+        # Map database statuses to display names
+        status_mapping = {
+            "completed": "Completed",
+            "pending": "Pending",
+            "active": "Pending",
+            "preparing": "Pending",
+            "cancelled": "Cancelled"
+        }
+        
+        normalized_counts = {}
+        for status, count in status_counts.items():
+            display_name = status_mapping.get(status, status.title())
+            if display_name not in normalized_counts:
+                normalized_counts[display_name] = 0
+            normalized_counts[display_name] += count
+        
+        for status, count in normalized_counts.items():
+            percentage = (count / total_orders * 100) if total_orders > 0 else 0
+            status_data.append(OrderStatusData(
+                status=status,
+                count=count,
+                percentage=round(percentage, 1)
+            ))
+        
+        return OrderStatusDistributionResponse(
+            business_id=str(business_id),
+            period=period,
+            status_data=status_data,
+            generated_at=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get order status distribution: {str(e)}")
+
+
+@router.get("/orders/types/{business_id}", response_model=OrderTypesResponse)
+async def get_order_types_distribution(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get order types distribution (dine-in, takeout, delivery)
+    
+    - **Order Types**: Dine-in, Takeout, Delivery
+    - **Distribution**: Count and percentage breakdown
+    - **Chart Data**: Formatted for pie charts
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Determine order type based on table_id and other factors
+        type_counts = {"Dine-in": 0, "Takeout": 0, "Delivery": 0}
+        
+        for order in orders:
+            # If order has table_id, it's dine-in
+            if order.get("table_id"):
+                type_counts["Dine-in"] += 1
+            # If order has delivery info or specific delivery status, it's delivery
+            elif order.get("delivery_address") or order.get("order_type") == "delivery":
+                type_counts["Delivery"] += 1
+            # Otherwise, assume takeout
+            else:
+                type_counts["Takeout"] += 1
+        
+        # Calculate percentages
+        total_orders = len(orders)
+        type_data = []
+        
+        for order_type, count in type_counts.items():
+            percentage = (count / total_orders * 100) if total_orders > 0 else 0
+            type_data.append(OrderTypeData(
+                type=order_type,
+                count=count,
+                percentage=round(percentage, 1)
+            ))
+        
+        return OrderTypesResponse(
+            business_id=str(business_id),
+            period=period,
+            type_data=type_data,
+            generated_at=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get order types distribution: {str(e)}")
+
+
+@router.get("/orders/top-items/{business_id}", response_model=TopSellingItemsResponse)
+async def get_top_selling_items(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$"),
+    limit: int = Query(5, ge=1, le=20)
+):
+    """
+    Get top selling menu items by quantity and revenue
+    
+    - **Top Items**: Best performing menu items
+    - **Metrics**: Quantity sold and revenue generated
+    - **Ranking**: Sorted by quantity sold
+    """
+    try:
+        db = get_database_service()
+        
+        # Calculate date range based on period
+        end_date = datetime.utcnow()
+        if period == "1d":
+            start_date = end_date - timedelta(days=1)
+        elif period == "7d":
+            start_date = end_date - timedelta(days=7)
+        elif period == "30d":
+            start_date = end_date - timedelta(days=30)
+        elif period == "90d":
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=7)
+        
+        # Get orders data
+        orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+        orders = orders_result.data if orders_result.data else []
+        
+        # Get menu items for name lookup
+        menu_items_result = db.client.table("menu_items").select("*").eq("business_id", str(business_id)).execute()
+        menu_items = menu_items_result.data if menu_items_result.data else []
+        menu_items_lookup = {item["id"]: item for item in menu_items}
+        
+        # Aggregate item sales from orders
+        item_sales = {}
+        
+        for order in orders:
+            items = order.get("items", [])
+            if isinstance(items, list):
+                for item in items:
+                    item_id = item.get("menu_item_id") or item.get("id")
+                    if item_id:
+                        if item_id not in item_sales:
+                            item_sales[item_id] = {
+                                "quantity": 0,
+                                "revenue": 0.0,
+                                "name": menu_items_lookup.get(item_id, {}).get("name", "Unknown Item")
+                            }
+                        
+                        quantity = item.get("quantity", 0)
+                        price = item.get("price", 0)
+                        
+                        item_sales[item_id]["quantity"] += quantity
+                        item_sales[item_id]["revenue"] += quantity * price
+        
+        # Convert to top items list and sort by quantity
+        top_items = []
+        for item_id, data in item_sales.items():
+            top_items.append(TopSellingItem(
+                name=data["name"],
+                quantity=data["quantity"],
+                revenue=round(data["revenue"], 2)
+            ))
+        
+        # Sort by quantity and limit results
+        top_items.sort(key=lambda x: x.quantity, reverse=True)
+        top_items = top_items[:limit]
+        
+        return TopSellingItemsResponse(
+            business_id=str(business_id),
+            period=period,
+            top_items=top_items,
+            generated_at=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get top selling items: {str(e)}")
+
+
+@router.get("/orders/dashboard/{business_id}", response_model=OrdersAnalyticsResponse)
+async def get_orders_analytics_dashboard(
+    business_id: UUID,
+    period: str = Query("7d", pattern=r"^(1d|7d|30d|90d)$")
+):
+    """
+    Get comprehensive orders analytics dashboard data
+    
+    - **Combined Data**: Overview, trends, distributions, top items
+    - **Real-time**: Latest data with caching considerations
+    - **Customizable**: Configurable time periods
+    """
+    try:
+        # Get all orders analytics data in parallel
+        overview = await get_orders_overview(business_id, period)
+        trend_data = await get_orders_trend(business_id, period)
+        status_distribution = await get_order_status_distribution(business_id, period)
+        hour_data = await get_orders_by_hour(business_id, period)
+        order_types = await get_order_types_distribution(business_id, period)
+        top_items = await get_top_selling_items(business_id, period, 5)
+        
+        return OrdersAnalyticsResponse(
+            business_id=str(business_id),
+            period=period,
+            overview=overview,
+            trend_data=trend_data,
+            status_distribution=status_distribution,
+            hour_data=hour_data,
+            order_types=order_types,
+            top_items=top_items,
+            generated_at=datetime.utcnow(),
+            cache_expires_at=datetime.utcnow() + timedelta(minutes=5)  # 5-minute cache
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get orders analytics dashboard: {str(e)}")
