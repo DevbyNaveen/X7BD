@@ -527,12 +527,27 @@ async def update_purchase_order(po_id: UUID, updates: dict):
         
         update_data["updated_at"] = datetime.utcnow().isoformat()
         
+        # Update the purchase order
         result = db.client.table("purchase_orders").update(update_data).eq("id", str(po_id)).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Purchase order not found")
         
-        return result.data[0]
+        # Fetch the updated purchase order with supplier information
+        updated_po = db.client.table("purchase_orders").select("*, suppliers(name, email, phone)").eq("id", str(po_id)).execute()
+        
+        if not updated_po.data:
+            raise HTTPException(status_code=404, detail="Purchase order not found")
+        
+        # Flatten the supplier data for frontend compatibility
+        po_data = updated_po.data[0]
+        if 'suppliers' in po_data and po_data['suppliers']:
+            supplier = po_data['suppliers']
+            po_data['supplier_name'] = supplier.get('name')
+            po_data['supplier_email'] = supplier.get('email')
+            po_data['supplier_phone'] = supplier.get('phone')
+        
+        return po_data
     except HTTPException:
         raise
     except Exception as e:

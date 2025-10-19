@@ -659,7 +659,7 @@ async def create_purchase_order(po: PurchaseOrderCreate, created_by: Optional[UU
         raise HTTPException(status_code=500, detail=f"Failed to create purchase order: {str(e)}")
 
 
-@router.get("/purchase-orders", response_model=List[PurchaseOrder])
+@router.get("/purchase-orders", response_model=List[dict])
 async def list_purchase_orders(
     business_id: UUID = Query(...),
     supplier_id: Optional[UUID] = Query(None),
@@ -683,12 +683,21 @@ async def list_purchase_orders(
         
         query = query.order("order_date", desc=True)
         result = query.execute()
-        return result.data
+        
+        # Flatten supplier data for each purchase order
+        flattened_data = []
+        for po_data in result.data:
+            if 'suppliers' in po_data and po_data['suppliers']:
+                supplier = po_data['suppliers']
+                po_data['supplier_name'] = supplier.get('name')
+            flattened_data.append(po_data)
+        
+        return flattened_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/purchase-orders/{po_id}", response_model=PurchaseOrder)
+@router.get("/purchase-orders/{po_id}", response_model=dict)
 async def get_purchase_order(po_id: UUID):
     """Get purchase order details"""
     try:
@@ -698,14 +707,22 @@ async def get_purchase_order(po_id: UUID):
         if not result.data:
             raise HTTPException(status_code=404, detail="Purchase order not found")
         
-        return result.data[0]
+        # Flatten the supplier data for frontend compatibility
+        po_data = result.data[0]
+        if 'suppliers' in po_data and po_data['suppliers']:
+            supplier = po_data['suppliers']
+            po_data['supplier_name'] = supplier.get('name')
+            po_data['supplier_email'] = supplier.get('email')
+            po_data['supplier_phone'] = supplier.get('phone')
+        
+        return po_data
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch purchase order: {str(e)}")
 
 
-@router.put("/purchase-orders/{po_id}", response_model=PurchaseOrder)
+@router.put("/purchase-orders/{po_id}", response_model=dict)
 async def update_purchase_order(po_id: UUID, updates: PurchaseOrderUpdate):
     """Update purchase order status"""
     try:
@@ -719,12 +736,27 @@ async def update_purchase_order(po_id: UUID, updates: PurchaseOrderUpdate):
         if "actual_delivery_date" in update_data and update_data["actual_delivery_date"]:
             update_data["actual_delivery_date"] = update_data["actual_delivery_date"].isoformat()
         
+        # Update the purchase order
         result = db.client.table("purchase_orders").update(update_data).eq("id", str(po_id)).execute()
         
         if not result.data:
             raise HTTPException(status_code=404, detail="Purchase order not found")
         
-        return result.data[0]
+        # Fetch the updated purchase order with supplier information
+        updated_po = db.client.table("purchase_orders").select("*, suppliers(name, email, phone)").eq("id", str(po_id)).execute()
+        
+        if not updated_po.data:
+            raise HTTPException(status_code=404, detail="Purchase order not found")
+        
+        # Flatten the supplier data for frontend compatibility
+        po_data = updated_po.data[0]
+        if 'suppliers' in po_data and po_data['suppliers']:
+            supplier = po_data['suppliers']
+            po_data['supplier_name'] = supplier.get('name')
+            po_data['supplier_email'] = supplier.get('email')
+            po_data['supplier_phone'] = supplier.get('phone')
+        
+        return po_data
     except HTTPException:
         raise
     except Exception as e:
