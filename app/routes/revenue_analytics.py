@@ -241,26 +241,65 @@ async def get_revenue_trend(
                     "orders": sale.get("total_orders", 0)
                 }
         
+        # Fallback: If daily_sales_summary is empty, calculate from orders table
+        if not sales_summary:
+            print(f"⚠️ daily_sales_summary is empty for business {business_id}, falling back to orders table")
+            orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
+            orders = orders_result.data if orders_result.data else []
+            
+            # Group orders by date
+            for order in orders:
+                try:
+                    # Handle different datetime formats from Supabase
+                    created_at = order["created_at"]
+                    
+                    # Normalize the datetime string
+                    if created_at.endswith('Z'):
+                        created_at = created_at[:-1] + '+00:00'
+                    
+                    # Fix microseconds format (ensure 6 digits)
+                    if '.' in created_at and '+' in created_at:
+                        # Split by timezone
+                        dt_part, tz_part = created_at.rsplit('+', 1)
+                        if '.' in dt_part:
+                            date_part, micro_part = dt_part.split('.')
+                            # Pad microseconds to 6 digits
+                            micro_part = micro_part.ljust(6, '0')[:6]
+                            created_at = f"{date_part}.{micro_part}+{tz_part}"
+                    
+                    # Parse the datetime
+                    order_date = datetime.fromisoformat(created_at).date()
+                    date_str = order_date.isoformat()
+                    
+                    if date_str not in sales_lookup:
+                        sales_lookup[date_str] = {"revenue": 0.0, "orders": 0}
+                    
+                    sales_lookup[date_str]["revenue"] += float(order.get("total_amount", 0))
+                    sales_lookup[date_str]["orders"] += 1
+                    
+                except ValueError as e:
+                    # Skip orders with invalid datetime formats
+                    print(f"Warning: Skipping order with invalid datetime format: {order.get('created_at')} - {e}")
+                    continue
+        
         # Generate trend data with day names
         trend_data = []
         days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         
         # For periods longer than 7 days, show weekly aggregates
         if period in ["30d", "90d", "1y"]:
-            # Group by week
+            # Group by week using sales_lookup (works for both daily_sales_summary and orders fallback)
             weekly_data = {}
-            for sale in sales_summary:
-                date_str = sale.get("date")
-                if date_str:
-                    date_obj = datetime.fromisoformat(date_str).date()
-                    week_start = date_obj - timedelta(days=date_obj.weekday())
-                    week_key = week_start.isoformat()
-                    
-                    if week_key not in weekly_data:
-                        weekly_data[week_key] = {"revenue": 0.0, "orders": 0}
-                    
-                    weekly_data[week_key]["revenue"] += float(sale.get("total_sales", 0))
-                    weekly_data[week_key]["orders"] += sale.get("total_orders", 0)
+            for date_str, data in sales_lookup.items():
+                date_obj = datetime.fromisoformat(date_str).date()
+                week_start = date_obj - timedelta(days=date_obj.weekday())
+                week_key = week_start.isoformat()
+                
+                if week_key not in weekly_data:
+                    weekly_data[week_key] = {"revenue": 0.0, "orders": 0}
+                
+                weekly_data[week_key]["revenue"] += data["revenue"]
+                weekly_data[week_key]["orders"] += data["orders"]
             
             # Convert to trend data
             for week_key in sorted(weekly_data.keys()):
@@ -449,19 +488,19 @@ async def get_revenue_by_hour(
                 hour = order_time.hour
                 order_amount = float(order.get("total_amount", 0))
                 
-                # Map hour to time range
+                # Map hour to time range (consistent with order analytics)
                 if 6 <= hour < 9:
-                    time_range = "6AM"
+                    time_range = "6AM-9AM"
                 elif 9 <= hour < 12:
-                    time_range = "9AM"
+                    time_range = "9AM-12PM"
                 elif 12 <= hour < 15:
-                    time_range = "12PM"
+                    time_range = "12PM-3PM"
                 elif 15 <= hour < 18:
-                    time_range = "3PM"
+                    time_range = "3PM-6PM"
                 elif 18 <= hour < 21:
-                    time_range = "6PM"
+                    time_range = "6PM-9PM"
                 elif 21 <= hour < 24 or 0 <= hour < 6:
-                    time_range = "9PM"
+                    time_range = "9PM-6AM"
                 else:
                     time_range = "Other"
                 
@@ -477,11 +516,14 @@ async def get_revenue_by_hour(
                 continue
         
         # Generate hour data with formatted labels
-        time_ranges = ["6AM", "9AM", "12PM", "3PM", "6PM", "9PM"]
+        time_ranges = [
+            "6AM-9AM", "9AM-12PM", "12PM-3PM", 
+            "3PM-6PM", "6PM-9PM", "9PM-6AM"
+        ]
         
         hour_data = []
         peak_hour_revenue = 0.0
-        peak_hour_label = "6PM"
+        peak_hour_label = "6PM-9PM"
         
         for time_range in time_ranges:
             revenue = hourly_revenue.get(time_range, {}).get("revenue", 0.0)
