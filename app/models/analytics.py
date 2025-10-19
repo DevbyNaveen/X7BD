@@ -195,6 +195,158 @@ class AnalyticsExportResponse(BaseModel):
 
 
 # ============================================================================
+# REVENUE ANALYTICS MODELS
+# ============================================================================
+
+class RevenueOverview(BaseModel):
+    """Revenue analytics overview with key metrics and trends"""
+    business_id: str
+    period: str
+    total_revenue: float
+    daily_revenue: float
+    weekly_revenue: float
+    monthly_revenue: float
+    revenue_growth: float
+    daily_growth: float
+    weekly_growth: float
+    monthly_growth: float
+    average_order_value: float
+    revenue_per_customer: float
+    total_orders: int
+    total_customers: int
+    last_updated: datetime
+    trends_included: bool = True
+
+
+class RevenueTrendData(BaseModel):
+    """Daily revenue trend data point"""
+    day: str
+    revenue: float
+    orders: int
+
+
+class RevenueByChannel(BaseModel):
+    """Revenue distribution by channel"""
+    channel: str
+    revenue: float
+    percentage: float
+
+
+class RevenueByHour(BaseModel):
+    """Revenue distribution by hour"""
+    hour: str
+    revenue: float
+    orders: int
+
+
+class PaymentMethodData(BaseModel):
+    """Revenue distribution by payment method"""
+    method: str
+    revenue: float
+    percentage: float
+
+
+class RevenueByCategory(BaseModel):
+    """Revenue distribution by category"""
+    category: str
+    revenue: float
+    percentage: float
+
+
+class TopRevenueItem(BaseModel):
+    """Top revenue-generating item"""
+    name: str
+    revenue: float
+    orders: int
+
+
+class RevenueProjection(BaseModel):
+    """Revenue projection data point"""
+    month: str
+    actual: float
+    projected: float
+
+
+# Revenue Analytics Response Models
+class RevenueTrendResponse(BaseModel):
+    """Revenue trend response"""
+    business_id: str
+    period: str
+    trend_data: List[RevenueTrendData]
+    generated_at: datetime
+
+
+class RevenueByChannelResponse(BaseModel):
+    """Revenue by channel response"""
+    business_id: str
+    period: str
+    channel_data: List[RevenueByChannel]
+    total_revenue: float
+    generated_at: datetime
+
+
+class RevenueByHourResponse(BaseModel):
+    """Revenue by hour response"""
+    business_id: str
+    period: str
+    hour_data: List[RevenueByHour]
+    peak_hour: str
+    peak_hour_revenue: float
+    generated_at: datetime
+
+
+class PaymentMethodsResponse(BaseModel):
+    """Payment methods revenue response"""
+    business_id: str
+    period: str
+    payment_data: List[PaymentMethodData]
+    total_revenue: float
+    generated_at: datetime
+
+
+class RevenueByCategoryResponse(BaseModel):
+    """Revenue by category response"""
+    business_id: str
+    period: str
+    category_data: List[RevenueByCategory]
+    total_revenue: float
+    generated_at: datetime
+
+
+class TopRevenueItemsResponse(BaseModel):
+    """Top revenue items response"""
+    business_id: str
+    period: str
+    top_items: List[TopRevenueItem]
+    generated_at: datetime
+
+
+class RevenueProjectionResponse(BaseModel):
+    """Revenue projection response"""
+    business_id: str
+    months: int
+    projection_data: List[RevenueProjection]
+    avg_growth_rate: float
+    generated_at: datetime
+
+
+class RevenueAnalyticsResponse(BaseModel):
+    """Comprehensive revenue analytics dashboard response"""
+    business_id: str
+    period: str
+    overview: RevenueOverview
+    trend_data: RevenueTrendResponse
+    channel_data: RevenueByChannelResponse
+    hour_data: RevenueByHourResponse
+    payment_methods: PaymentMethodsResponse
+    category_data: RevenueByCategoryResponse
+    top_items: TopRevenueItemsResponse
+    projection_data: RevenueProjectionResponse
+    generated_at: datetime
+    cache_expires_at: datetime
+
+
+# ============================================================================
 # ORDERS ANALYTICS MODELS
 # ============================================================================
 

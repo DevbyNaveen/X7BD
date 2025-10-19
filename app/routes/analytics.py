@@ -969,7 +969,7 @@ async def get_orders_by_hour(
         orders_result = db.client.table("orders").select("*").eq("business_id", str(business_id)).gte("created_at", start_date.isoformat()).execute()
         orders = orders_result.data if orders_result.data else []
         
-        # Group orders by hour
+        # Group orders by time ranges
         hourly_data = {}
         for order in orders:
             try:
@@ -994,9 +994,25 @@ async def get_orders_by_hour(
                 order_time = datetime.fromisoformat(created_at)
                 hour = order_time.hour
                 
-                if hour not in hourly_data:
-                    hourly_data[hour] = 0
-                hourly_data[hour] += 1
+                # Map hour to time range
+                if 6 <= hour < 9:
+                    time_range = "6AM-9AM"
+                elif 9 <= hour < 12:
+                    time_range = "9AM-12PM"
+                elif 12 <= hour < 15:
+                    time_range = "12PM-3PM"
+                elif 15 <= hour < 18:
+                    time_range = "3PM-6PM"
+                elif 18 <= hour < 21:
+                    time_range = "6PM-9PM"
+                elif 21 <= hour < 24 or 0 <= hour < 6:
+                    time_range = "9PM-6AM"
+                else:
+                    time_range = "Other"
+                
+                if time_range not in hourly_data:
+                    hourly_data[time_range] = 0
+                hourly_data[time_range] += 1
                 
             except ValueError as e:
                 # Skip orders with invalid datetime formats
@@ -1004,21 +1020,22 @@ async def get_orders_by_hour(
                 continue
         
         # Generate hour data with formatted labels
-        hour_labels = {
-            6: "6AM", 9: "9AM", 12: "12PM", 15: "3PM", 18: "6PM", 21: "9PM"
-        }
+        time_ranges = [
+            "6AM-9AM", "9AM-12PM", "12PM-3PM", 
+            "3PM-6PM", "6PM-9PM", "9PM-6AM"
+        ]
         
         hour_data = []
         peak_hour_count = 0
-        peak_hour_label = "6PM"
+        peak_hour_label = "6PM-9PM"
         
-        for hour, label in hour_labels.items():
-            count = hourly_data.get(hour, 0)
-            hour_data.append(OrderHourData(hour=label, orders=count))
+        for time_range in time_ranges:
+            count = hourly_data.get(time_range, 0)
+            hour_data.append(OrderHourData(hour=time_range, orders=count))
             
             if count > peak_hour_count:
                 peak_hour_count = count
-                peak_hour_label = label
+                peak_hour_label = time_range
         
         return OrdersByHourResponse(
             business_id=str(business_id),

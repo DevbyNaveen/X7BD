@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Histogram
 import uvicorn
 from datetime import datetime
 from typing import Optional
@@ -22,7 +21,8 @@ load_dotenv()
 # Import routers
 from .routes import (
     menu, inventory, operations, analytics, websocket, business_settings, auth,
-    service_based, retail, professional, universal_analytics, reviews, food
+    service_based, retail, professional, universal_analytics, reviews, food,
+    revenue_analytics
 )
 
 # Import DevOps client
@@ -46,17 +46,8 @@ SERVICE_NAME = "analytics-dashboard-service"
 SERVICE_PORT = int(os.getenv("ANALYTICS_PORT", 8060))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# Prometheus metrics
-REQUEST_COUNT = Counter(
-    'x7bd_food_qr_requests_total',
-    'Total requests',
-    ['method', 'endpoint', 'status']
-)
-PDF_UPLOADS = Counter(
-    'x7bd_food_qr_pdf_uploads_total',
-    'Total PDF uploads',
-    ['status']
-)
+# Import metrics from separate module to avoid duplication issues
+from .metrics import REQUEST_COUNT, PDF_UPLOADS
 
 
 @asynccontextmanager
@@ -131,6 +122,7 @@ app.include_router(professional.router)
 
 # Universal routes
 app.include_router(analytics.router)
+app.include_router(revenue_analytics.router)  # Revenue analytics
 app.include_router(reviews.router)  # Menu reviews and ratings
 app.include_router(universal_analytics.router)  # Cross-category analytics
 app.include_router(websocket.router)
