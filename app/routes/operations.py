@@ -907,6 +907,13 @@ async def create_staff_member(staff: StaffMemberCreate):
         # Handle empty hire_date string
         if data.get("hire_date") == "":
             data["hire_date"] = None
+        # Convert hire_date datetime to ISO string for JSON serialization
+        elif data.get("hire_date"):
+            hire_dt = data["hire_date"]
+            if isinstance(hire_dt, datetime) and hire_dt.tzinfo is None:
+                hire_dt = hire_dt.replace(tzinfo=timezone.utc)
+            if isinstance(hire_dt, datetime):
+                data["hire_date"] = hire_dt.isoformat()
         
         # Convert Decimal to float for JSON serialization
         if data.get("hourly_rate") is not None:
@@ -997,6 +1004,13 @@ async def update_staff_member(staff_id: UUID, updates: StaffMemberUpdate):
         # Handle empty hire_date string
         if update_data.get("hire_date") == "":
             update_data["hire_date"] = None
+        # Convert hire_date datetime to ISO string for JSON serialization
+        elif update_data.get("hire_date"):
+            hire_dt = update_data["hire_date"]
+            if isinstance(hire_dt, datetime) and hire_dt.tzinfo is None:
+                hire_dt = hire_dt.replace(tzinfo=timezone.utc)
+            if isinstance(hire_dt, datetime):
+                update_data["hire_date"] = hire_dt.isoformat()
         
         # Convert Decimal to float for JSON serialization
         if update_data.get("hourly_rate") is not None:
